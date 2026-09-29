@@ -23,6 +23,22 @@
             padding:14px 18px; font-size:14px; color:#9fb0c8; }
   .status b { color:#e8edf5; }
   input[type=range] { width:100%; }
+  * { box-sizing:border-box; }
+  input[type=text] { width:100%; background:#0b1017; color:#e8edf5;
+      border:1px solid #29354a; border-radius:8px; padding:14px 16px;
+      font-size:15px; }
+  input[type=text]:focus { outline:none; border-color:#76b900; }
+  .preset { min-width:auto; padding:13px 15px; font-size:13px;
+      background:#131a26; color:#9fb0c8; }
+  #agentOut { line-height:1.5; }
+  #agentOut .qline { color:#7f8ba1; font-size:13px; margin-bottom:8px; }
+  #agentOut .ans { color:#e8edf5; font-size:15px; }
+  #agentOut .plan { margin-top:10px; }
+  #agentOut .plan span { display:inline-block; background:#18202e;
+      border:1px solid #29354a; border-radius:6px; padding:5px 10px;
+      margin:3px 5px 3px 0; font-size:13px; }
+  #agentOut .adj { color:#e8b93a; font-size:13px; margin-top:8px; }
+  #agentOut .err { color:#e8615a; font-size:13px; }
   a { color:#76b900; font-size:13px; }
 </style>
 </head>
@@ -45,6 +61,23 @@
 <input type="range" id="lead" min="0" max="8" value="0" oninput="setLead(this.value)">
 <div class="hint" id="leadTxt">+0 h</div>
 
+
+<h2>Ask the agent</h2>
+<div class="hint" style="margin-bottom:10px">
+  Runs in a NemoClaw sandbox. <b>Ask</b> answers a question; <b>Plan</b> turns it
+  into a run; <b>Plan &amp; Run</b> executes it on the cluster.
+</div>
+<input type="text" id="q" placeholder="e.g. how much can we trust next week on the US east coast?"
+       onkeydown="if(event.key==='Enter')doPlan(false)">
+<div class="row" style="margin-top:10px">
+  <button id="bAsk"  onclick="doAsk()">&#128172;&nbsp; Ask<small>explain, no compute</small></button>
+  <button id="bPlan" onclick="doPlan(false)">&#128203;&nbsp; Plan<small>show the plan only</small></button>
+  <button id="bRun"  onclick="doPlan(true)">&#9654;&nbsp; Plan &amp; Run<small>real compute on 3 Sparks</small></button>
+  <button onclick="post('/api/agent/clear')">&#10005;&nbsp; Clear</button>
+</div>
+<div class="row" id="presets"></div>
+<div class="status" id="agentOut" style="margin-top:12px; display:none"></div>
+
 <h2>Cluster</h2>
 <div class="row">
   <button onclick="if(confirm('Run a NEW ensemble on the cluster? Takes a few minutes.')) post('/api/run')">
@@ -54,7 +87,45 @@
 <div class="status" id="status">&hellip;</div>
 
 <script>
+const PRESETS = [
+  "How much can we trust next week on the US east coast?",
+  "Show me rain bands over Taiwan in fine detail",
+  "What's the weather tomorrow?",
+  "Will the hurricane hit Florida? Show the pressure field",
+  "Why are six forecasts better than one?",
+  "What's the catch? What can't this do?"
+];
+document.addEventListener('DOMContentLoaded', () => {
+  // Build preset buttons and bind handlers in JS. An inline onclick has to
+  // survive Jinja + HTML-attribute + JS-string quoting all at once, and an
+  // apostrophe in a question ("What's the catch?") silently breaks it.
+  const box = document.getElementById('presets');
+  PRESETS.forEach(text => {
+    const b = document.createElement('button');
+    b.className = 'preset';
+    b.textContent = text;
+    b.addEventListener('click', () => {
+      const q = document.getElementById('q');
+      q.value = text;
+      q.focus();
+    });
+    box.appendChild(b);
+  });
+});
+
 async function post(u){ await fetch(u,{method:'POST'}); refresh(); }
+async function doAsk(){
+  const q = document.getElementById('q').value.trim();
+  if(!q){ alert('Type a question first, or pick one of the suggestions.'); return; }
+  await fetch('/api/agent/ask?q='+encodeURIComponent(q), {method:'POST'}); refresh();
+}
+async function doPlan(exec){
+  const q = document.getElementById('q').value.trim();
+  if(!q){ alert('Type a question first, or pick one of the suggestions.'); return; }
+  if (exec && !confirm('Run this on the cluster for real? It can take several minutes.')) return;
+  await fetch('/api/agent/plan?q='+encodeURIComponent(q)+'&execute='+(exec?'true':'false'),
+              {method:'POST'}); refresh();
+}
 async function beat(b){ await post('/api/beat/'+b); }
 async function setLead(v){ await post('/api/lead/'+v); }
 async function refresh(){
@@ -66,6 +137,38 @@ async function refresh(){
     const sl = document.getElementById('lead');
     sl.max = n; sl.value = s.lead;
     document.getElementById('leadTxt').textContent = '+'+(s.lead*6)+' h';
+    // agent panel
+    const a = s.agent || {};
+    const box = document.getElementById('agentOut');
+    if (a.status && a.status !== 'idle') {
+      box.style.display = 'block';
+      let h = `<div class="qline">&ldquo;${a.question||''}&rdquo;</div>`;
+      if (a.status === 'busy') h += `<div class="ans">working&hellip;</div>`;
+      if (a.answer) h += `<div class="ans">${a.answer}</div>`;
+      if (a.plan) {
+        const p = a.plan;
+        h += `<div class="plan">` +
+             (p.intent ? `<div class="ans" style="margin-bottom:6px">${p.intent}</div>` : '') +
+             `<span>${p.members||''} members</span>` +
+             `<span>${p.horizon||''}</span>` +
+             `<span>${p.region||''}</span>` +
+             `<span>${p.variable||''}</span>` +
+             `<span>downscale ${p.downscale||'no'}</span>` +
+             `<span>est ${p.estimate||''}</span></div>`;
+        (p.adjusted||[]).forEach(x => h += `<div class="adj">adjusted &mdash; ${x}</div>`);
+      }
+      if (a.error) h += `<div class="err">${a.error}</div>`;
+      box.innerHTML = h;
+    } else { box.style.display = 'none'; }
+    // Lock the agent buttons while a turn is in flight. Plan & Run can take
+    // minutes; without this an operator double-taps and queues a second run.
+    const busy = (a.status === 'busy');
+    ['bAsk','bPlan','bRun'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) { el.disabled = busy; el.style.opacity = busy ? 0.45 : 1;
+                el.style.pointerEvents = busy ? 'none' : 'auto'; }
+    });
+
     const r = s.run||{};
     const row = s.manifest.curve && s.manifest.curve[s.lead];
     document.getElementById('status').innerHTML =

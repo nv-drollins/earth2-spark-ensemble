@@ -47,6 +47,11 @@ STATE = {
     "lead": 0,
     "playing": False,
     "run": {"status": "idle", "detail": "", "started": 0.0},
+    # Last agent interaction, surfaced on BOTH the operator console and the
+    # aisle display -- a visitor should see the question and the plan, never a
+    # terminal.
+    "agent": {"status": "idle", "question": "", "answer": "",
+              "plan": None, "error": ""},
 }
 _lock = threading.Lock()
 
@@ -186,4 +191,135 @@ async def run_ensemble() -> JSONResponse:
                 STATE["run"] = {"status": "error", "detail": str(exc)[:400], "started": 0.0}
 
     threading.Thread(target=_work, daemon=True).start()
+    return JSONResponse({"ok": True})
+
+
+# --- agent: ask + plan + run ----------------------------------------------
+
+def _agent_script(name: str) -> str:
+    return os.path.join(REPO, "agent", name)
+
+
+@app.post("/api/agent/ask")
+async def agent_ask(q: str = "") -> JSONResponse:
+    """Answer a visitor question about the demo (no cluster work)."""
+    q = (q or "").strip()
+    if not q:
+        return JSONResponse({"error": "empty question"}, status_code=400)
+    with _lock:
+        if STATE["agent"]["status"] == "busy":
+            return JSONResponse({"ok": True, "already": True})
+        STATE["agent"] = {"status": "busy", "question": q, "answer": "",
+                          "plan": None, "error": ""}
+
+    def _work() -> None:
+        try:
+            r = subprocess.run(["bash", _agent_script("ask.sh"), q],
+                               capture_output=True, text=True, timeout=300)
+            answer = (r.stdout or "").strip()
+            with _lock:
+                if r.returncode == 0 and answer:
+                    STATE["agent"].update(status="done", answer=answer)
+                else:
+                    STATE["agent"].update(
+                        status="error",
+                        error=(r.stderr or "no answer returned")[-300:])
+        except Exception as exc:
+            with _lock:
+                STATE["agent"].update(status="error", error=str(exc)[:300])
+
+    threading.Thread(target=_work, daemon=True).start()
+    return JSONResponse({"ok": True})
+
+
+@app.post("/api/agent/plan")
+async def agent_plan(q: str = "", execute: bool = False) -> JSONResponse:
+    """Turn a question into a validated plan; optionally run it for real."""
+    q = (q or "").strip()
+    if not q:
+        return JSONResponse({"error": "empty question"}, status_code=400)
+    with _lock:
+        if STATE["agent"]["status"] == "busy":
+            return JSONResponse({"ok": True, "already": True})
+        STATE["agent"] = {"status": "busy", "question": q, "answer": "",
+                          "plan": None, "error": ""}
+        if execute:
+            STATE["run"] = {"status": "running", "detail": "planning",
+                            "started": time.time()}
+
+    def _work() -> None:
+        try:
+            # Always plan first so the UI can show the plan even when the
+            # operator chose to execute -- a plan that appears only after a
+            # 4-minute run is useless on stage.
+            r = subprocess.run(["bash", _agent_script("run-plan.sh"),
+                                "--dry-run", q],
+                               capture_output=True, text=True, timeout=300)
+            plan = _parse_plan(r.stdout or "")
+            with _lock:
+                STATE["agent"].update(plan=plan)
+                if not plan:
+                    STATE["agent"].update(
+                        status="error",
+                        error=(r.stderr or r.stdout or "no plan")[-300:])
+                    STATE["run"] = {"status": "idle", "detail": "", "started": 0.0}
+            if not plan:
+                return
+            if not execute:
+                with _lock:
+                    STATE["agent"].update(status="done")
+                return
+
+            with _lock:
+                STATE["run"]["detail"] = "running ensemble"
+            r2 = subprocess.run(["bash", _agent_script("run-plan.sh"), q],
+                                capture_output=True, text=True, timeout=5400)
+            with _lock:
+                if r2.returncode == 0:
+                    STATE["agent"].update(status="done")
+                    STATE["run"] = {"status": "done", "detail": "ready",
+                                    "started": 0.0}
+                else:
+                    STATE["agent"].update(status="error",
+                                          error=(r2.stderr or "")[-300:])
+                    STATE["run"] = {"status": "error",
+                                    "detail": (r2.stderr or "")[-200:],
+                                    "started": 0.0}
+        except Exception as exc:
+            with _lock:
+                STATE["agent"].update(status="error", error=str(exc)[:300])
+                STATE["run"] = {"status": "error", "detail": str(exc)[:200],
+                                "started": 0.0}
+
+    threading.Thread(target=_work, daemon=True).start()
+    return JSONResponse({"ok": True})
+
+
+def _parse_plan(text: str) -> dict | None:
+    """Scrape the human-readable plan block from run-plan.sh output.
+
+    The script is the single source of truth for planning; re-implementing the
+    sandbox call here would give two code paths that can disagree.
+    """
+    out: dict = {"adjusted": []}
+    keys = {"intent": "intent", "ensemble": "members", "horizon": "horizon",
+            "perturbation": "noise", "region": "region",
+            "variable": "variable", "downscale": "downscale",
+            "estimate": "estimate"}
+    for line in text.splitlines():
+        s = line.strip()
+        if s.startswith("adjusted"):
+            out["adjusted"].append(s.split(None, 1)[-1].strip())
+            continue
+        parts = s.split(None, 1)
+        if len(parts) == 2 and parts[0] in keys:
+            out[keys[parts[0]]] = parts[1].strip()
+    return out if "members" in out else None
+
+
+@app.post("/api/agent/clear")
+async def agent_clear() -> JSONResponse:
+    with _lock:
+        STATE["agent"] = {"status": "idle", "question": "", "answer": "",
+                          "plan": None, "error": ""}
     return JSONResponse({"ok": True})
