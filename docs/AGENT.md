@@ -113,9 +113,74 @@ User-supplied presets use `preset:` + `network_policies:` (see
   which makes copying one as a template misleading. Pass
   `--trusted-private-host <ip>` on `policy-add` instead.
 
+## What you can ask it today
+
+```bash
+./agent/ask.sh "why are six forecasts better than one?"
+```
+
+It is a **booth explainer**, grounded in the demo's measured numbers. It answers
+questions *about* the demo; it cannot yet run one.
+
+Verified exchanges:
+
+> **"Our spread went from 0.0004 K to 7.83 K in 48 hours. Is that bad?"**
+> That spread is expected for a chaotic system like weather, especially since
+> the model is a surrogate rather than a full physics simulation. The reference
+> data confirms that 7.83 K is the mean spread at 48 hours, with maximums
+> reaching 41 K in volatile regions.
+
+> **"What's the catch? What can't this do?"**
+> This is a surrogate model rather than a physics-based simulation, so it does
+> not strictly conserve mass or energy. Its predictive skill degrades
+> significantly past about ten days.
+
+**It declines what it does not know** — which is the property that matters when
+a stranger is asking:
+
+> **"How does this compare to the European ECMWF forecast system?"**
+> The reference material does not provide a direct comparison...
+
+> **"How much power does one Spark draw?"**
+> The reference material does not provide the power consumption for a single
+> DGX Spark machine.
+
+### Prompt design, learned the hard way
+
+The first version put the facts as prose in the system prompt. The model then
+treated those facts as *the thing to present* and answered every question —
+including "why are six forecasts better than one?" — with the same bulleted
+brochure recital, opening "Welcome to the NVIDIA booth!" It also invented the
+model's name twice ("Spectral", then "Stochastic"; SFNO is **Spherical**).
+
+What fixed it:
+
+- Facts in a clearly labelled `REFERENCE FACTS (background only -- not a script
+  to read out)` block, separate from the instructions.
+- Explicit rules: answer the question, do not greet, no bullet lists, two or
+  three sentences, never invent a number or a name.
+- `temperature: 0.3` — lower drift.
+- `enable_thinking: false` — otherwise the model spends its budget reasoning
+  and returns empty content.
+
+**Always test with a question the reference cannot answer.** A model that
+recites confidently looks fine until a visitor asks something off-script.
+
+### Quoting: pass questions as base64
+
+The call crosses `ssh` → `bash -lc` → `openshell sandbox exec`, and each layer
+strips quotes. A question passed as plain argv arrives truncated at the first
+space or apostrophe, and the model replies that the question is "incomplete" —
+which looks like a model failure but is a shell bug. `agent/ask.sh` base64-encodes
+both the script and the question.
+
 ## Status
 
-The foundation is proven: sandbox, runtime, policy gate, and live inference all
-verified end to end. The natural-language planning layer on top — "how much
-stronger does this storm get if the sea surface warms two degrees?" mapped onto
-a real ensemble run — is the next build.
+Foundation proven end to end: sandbox, Hermes runtime, policy gate, live
+inference, and a grounded booth explainer that declines what it does not know.
+
+Still to build: the **planning** layer — mapping "how much stronger does this
+storm get if the sea surface warms two degrees?" onto a real perturbed ensemble
+run, with the agent choosing region and parameters and dispatching to the
+cluster. The plumbing is done; that step is prompt design plus a dispatch
+endpoint.
