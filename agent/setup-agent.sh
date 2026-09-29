@@ -21,9 +21,45 @@ SBX="${E2_SANDBOX:-e2-agent}"
 VLLM_CONTAINER="${E2_VLLM_CONTAINER:-vllm-server}"
 VLLM_PORT="${E2_VLLM_PORT:-8000}"
 MODEL="${E2_AGENT_MODEL:-}"
-NODE="${E2_AGENT_NODE:-${NODE_ARR[0]}}"
+
+# The agent belongs on whichever node actually SERVES the model -- which is not
+# necessarily NODE_ARR[0]. Auto-detect by probing each node for a live vLLM,
+# unless the operator pins one explicitly.
+NODE="${E2_AGENT_NODE:-}"
+if [[ -z "$NODE" ]]; then
+  for n in "${NODE_ARR[@]}"; do
+    if on_node "$n" "curl -s -o /dev/null --max-time 5 http://127.0.0.1:$VLLM_PORT/v1/models" 2>/dev/null; then
+      NODE="$n"; break
+    fi
+  done
+fi
+if [[ -z "$NODE" ]]; then
+  err "no node in NODES is serving a model on port $VLLM_PORT."
+  echo "  Start one, or pin the node with:  E2_AGENT_NODE=user@host ./agent/setup-agent.sh"
+  exit 1
+fi
 
 hdr "Earth-2 agent sandbox on $NODE"
+
+# 0. NemoClaw present? Its installer AUTO-RUNS `nemoclaw onboard`, which tries
+#    to stand up its OWN vLLM on :8000 and aborts when one is already there:
+#      "vLLM install failed: port 8000 is already in use by another process."
+#    That abort is EXPECTED and harmless -- the CLIs still install fine, and
+#    this script then onboards against the existing model. Say so up front so
+#    nobody tries to "fix" a working install.
+if ! on_node "$NODE" "command -v nemoclaw >/dev/null"; then
+  err "nemoclaw not found on $NODE."
+  echo "  Install it (run ON that node):"
+  echo "    curl -fsSL https://www.nvidia.com/nemoclaw.sh | \\"
+  echo "      NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE=1 NEMOCLAW_SANDBOX_NAME=throwaway-init bash"
+  echo
+  echo "  NOTE: it will END with 'vLLM install failed: port 8000 is already in"
+  echo "  use' and exit non-zero. That is FINE -- the CLIs installed; this"
+  echo "  script handles the onboarding. Verify with: nemoclaw --version"
+  echo "  Then clean up its throwaway sandbox: nemoclaw throwaway-init destroy --yes"
+  exit 1
+fi
+ok "nemoclaw $(on_node "$NODE" "nemoclaw --version 2>/dev/null | head -1" | tr -d '\r')"
 
 # 1. The vLLM container must share the openshell bridge, or the sandbox cannot
 #    route to it at all.

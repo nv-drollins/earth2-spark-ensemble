@@ -33,7 +33,30 @@ curl -fsSL https://www.nvidia.com/nemoclaw.sh | \
 ./agent/setup-agent.sh
 ```
 
-Idempotent: re-running skips an existing sandbox and re-asserts the policy.
+Idempotent: re-running skips an existing sandbox and re-asserts the policy. It
+auto-detects which node is serving a model (pin it with `E2_AGENT_NODE=user@host`).
+
+### The installer "failure" that is not a failure
+
+NemoClaw's installer auto-runs `nemoclaw onboard`, which tries to stand up its
+**own** vLLM and aborts when one already holds the port:
+
+```
+vLLM install failed: port 8000 is already in use by another process.
+[ERROR] Onboarding did not complete successfully.
+```
+
+**This is expected and harmless.** The `nemoclaw` and `openshell` CLIs install
+fine; only the bundled onboarding step fails, and `setup-agent.sh` does that
+part properly against your existing model. Verify with `nemoclaw --version`,
+then remove the installer's throwaway sandbox:
+
+```bash
+nemoclaw throwaway-init destroy --yes
+```
+
+Do **not** stop your vLLM to make the installer happy — that would download a
+second ~20 GB model you do not need.
 
 ## Verified working
 

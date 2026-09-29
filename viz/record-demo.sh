@@ -94,6 +94,11 @@ sleep 3
 
 step "beat: uncertainty map"; beat spread ; sleep 9
 
+# CorrDiff zoom beat, only if frames exist (it is an optional second act).
+if curl -s --max-time 5 "$API/state" | grep -q '"corrdiff"'; then
+  step "beat: zoom (CorrDiff)"; beat zoom ; sleep 10
+fi
+
 step "finalizing"
 kill -INT "$FF_PID" 2>/dev/null   # -INT so ffmpeg writes the moov atom
 wait "$FF_PID" 2>/dev/null
