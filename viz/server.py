@@ -39,6 +39,7 @@ BEATS = [
     {"id": "ensemble", "label": "2. Six members",        "lead": 0},
     {"id": "diverge",  "label": "3. Watch them diverge", "lead": -1},
     {"id": "spread",   "label": "4. Where it's unsure",  "lead": -1},
+    {"id": "zoom",     "label": "5. Zoom in (CorrDiff)",  "lead": -1},
 ]
 
 STATE = {
@@ -53,9 +54,17 @@ _lock = threading.Lock()
 def manifest() -> dict:
     path = os.path.join(FRAMES, "manifest.json")
     if not os.path.isfile(path):
-        return {"members": [], "n_lead": 0, "curve": [], "frames": {}}
-    with open(path) as fh:
-        return json.load(fh)
+        man = {"members": [], "n_lead": 0, "curve": [], "frames": {}}
+    else:
+        with open(path) as fh:
+            man = json.load(fh)
+    # CorrDiff is optional: the demo runs fine without it, the zoom beat just
+    # has nothing to show.
+    cd_path = os.path.join(FRAMES, "corrdiff_manifest.json")
+    if os.path.isfile(cd_path):
+        with open(cd_path) as fh:
+            man["corrdiff"] = json.load(fh)
+    return man
 
 
 @app.get("/", response_class=HTMLResponse)

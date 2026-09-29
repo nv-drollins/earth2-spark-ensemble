@@ -20,6 +20,9 @@
           place-items:center; grid-template-columns:repeat(3,1fr);
           grid-auto-rows:1fr; min-height:0; }
   .grid.one { grid-template-columns:1fr; }
+  .grid.two { grid-template-columns:repeat(2,1fr); }
+  /* CorrDiff output is a flat regional map, not a globe -- square, not round. */
+  .grid.two .cell img { border-radius:8px; }
   /* min-height:0 + min-width:0 are REQUIRED on grid children: without them a
      grid item refuses to shrink below its content size, so a square globe
      sizes to the cell WIDTH and overflows the shorter cell HEIGHT (the sphere
@@ -33,7 +36,11 @@
               max-width:100%; max-height:100%; aspect-ratio:1/1;
               object-fit:contain; border-radius:50%; display:block; }
   .tag { position:absolute; bottom:0; left:50%; transform:translateX(-50%);
-         font-size:18px; color:#aab6c9; letter-spacing:2px; font-weight:600; }
+         font-size:18px; color:#aab6c9; letter-spacing:2px; font-weight:600;
+         white-space:nowrap; }
+  /* Two-panel comparison captions are longer; shrink so they never wrap and
+     split a number from its unit ("2 / km"). */
+  .grid.two .tag { font-size:15px; letter-spacing:1px; }
   aside { width:390px; display:flex; flex-direction:column; gap:20px;
           padding-top:10px; }
   .panel { background:#0d111a; border:1px solid #1b2333; border-radius:10px;
@@ -104,7 +111,8 @@ const MSG = {
   single:   "One forecast. Looks authoritative &mdash; but how much should you <b>trust</b> it?",
   ensemble: "Six forecasts. Identical model, initial conditions nudged by a fraction of a degree.",
   diverge:  "Watch them separate. Same physics, minutely different starts &mdash; <b>this is chaos</b>.",
-  spread:   "Red is where the members <b>disagree</b>. That map is the real product."
+  spread:   "Red is where the members <b>disagree</b>. That map is the real product.",
+  zoom:     "Now dive in. CorrDiff resolves <b>individual rain bands</b> the global model cannot see."
 };
 let last = "";
 
@@ -141,13 +149,21 @@ async function tick() {
 
     const single = (s.beat === 'idle' || s.beat === 'single');
     const spreadOnly = (s.beat === 'spread');
+    const zoom = (s.beat === 'zoom');
     const key = s.beat + ':' + lead;
 
     if (fr && key !== last) {
       last = key;
-      grid.className = 'grid' + ((single || spreadOnly) ? ' one' : '');
+      grid.className = 'grid' + ((single || spreadOnly) ? ' one' : (zoom ? ' two' : ''));
       let html = '';
-      if (spreadOnly) {
+      if (zoom) {
+        const cd = man.corrdiff || {};
+        const gain = cd.resolution_gain ? (cd.resolution_gain + '\u00d7') : '';
+        html = `<div class="cell"><img src="/frames/corrdiff_coarse.jpg">
+                  <div class="tag">GLOBAL MODEL &mdash; 25 km</div></div>
+                <div class="cell"><img src="/frames/corrdiff_fine.jpg">
+                  <div class="tag">CORRDIFF &mdash; 2 km (${gain} finer)</div></div>`;
+      } else if (spreadOnly) {
         html = `<div class="cell"><img src="/frames/${fr.spread}">
                 <div class="tag">ENSEMBLE SPREAD</div></div>`;
       } else if (single) {
@@ -165,7 +181,8 @@ async function tick() {
     document.getElementById('spreadVal').textContent = row ? row.mean_K.toFixed(2) : '0.00';
     document.getElementById('msg').innerHTML = MSG[s.beat] || '';
     const b = {idle:'', single:'One forecast', ensemble:'Six members',
-               diverge:'Divergence', spread:'Uncertainty map'}[s.beat] || '';
+               diverge:'Divergence', spread:'Uncertainty map',
+               zoom:'km-scale downscaling'}[s.beat] || '';
     document.getElementById('beatLabel').textContent = b;
     drawCurve(man.curve, lead);
   } catch (e) { /* booth must never show a stack trace */ }

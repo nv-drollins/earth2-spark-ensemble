@@ -1,0 +1,28 @@
+# Earth-2 booth agent: access to the host vLLM for inference only.
+preset:
+  name: e2-vllm
+  description: "Earth-2 agent access to the host vLLM (inference endpoints only)"
+
+network_policies:
+  e2-vllm:
+    name: e2-vllm
+    endpoints:
+      # host.openshell.internal resolves to the openshell bridge GATEWAY
+      # (172.18.0.1) where nothing listens. The vLLM container is attached to
+      # the same bridge and answers on its OWN address, so target that.
+      # Re-check after any `docker rm` of vLLM -- the IP can move:
+      #   docker inspect vllm-server -f '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}={{$v.IPAddress}} {{end}}'
+      # NOTE: user-supplied presets may NOT contain `allowed_ips` (built-in
+      # NVIDIA presets can). Pass --trusted-private-host <ip> on policy-add.
+      - host: 172.18.0.3
+        port: 8000
+        protocol: rest
+        enforcement: enforce
+        rules:
+          - allow: { method: GET,  path: "/v1/models" }
+          - allow: { method: POST, path: "/v1/chat/completions" }
+          - allow: { method: POST, path: "/v1/completions" }
+    binaries:
+      - { path: /usr/bin/curl }
+      - { path: /usr/bin/python3* }
+      - { path: /opt/hermes/.venv/bin/python3* }

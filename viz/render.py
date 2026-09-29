@@ -220,6 +220,72 @@ def render_all(data_dir: str, out_dir: str, size: int = 900,
     return manifest
 
 
+
+
+# --- CorrDiff km-scale downscaling ---------------------------------------
+
+# Radar-style ramp for rainfall rate: transparent-dark for "no rain" rising to
+# magenta for extreme cells. Matches the visual idiom meteorologists expect.
+_RAIN_STOPS = [
+    (0.00, (10, 14, 24)),
+    (0.14, (24, 64, 120)),
+    (0.32, (32, 150, 170)),
+    (0.50, (86, 194, 96)),
+    (0.66, (232, 214, 74)),
+    (0.82, (230, 126, 40)),
+    (0.93, (214, 44, 44)),
+    (1.00, (226, 74, 196)),
+]
+RAIN_LUT = _ramp(_RAIN_STOPS)
+
+
+def render_corrdiff(data_dir: str, out_dir: str, size: int = 900) -> dict:
+    """Render the CorrDiff output as a flat high-resolution rainfall map.
+
+    Deliberately NOT projected onto a globe: the point of this beat is that we
+    have zoomed IN. A regional map at 448x448 next to the coarse 36x40 input is
+    the whole story -- individual rain bands appear where the global model has
+    only a handful of cells.
+    """
+    import json as _json
+
+    arr = np.load(os.path.join(data_dir, "corrdiff.npy"))
+    with open(os.path.join(data_dir, "corrdiff.json")) as fh:
+        meta = _json.load(fh)
+
+    # (batch, sample, variable, lat, lon) -> (variable, lat, lon)
+    while arr.ndim > 3:
+        arr = arr[0]
+    out_vars = meta["out_vars"]
+    mrr = arr[out_vars.index("mrr")]
+
+    os.makedirs(out_dir, exist_ok=True)
+
+    # Rainfall is extremely right-skewed; a linear scale shows almost nothing.
+    field = np.clip(mrr, 0.0, None)
+    vmax = float(np.percentile(field, 99.5)) or 1.0
+    norm = np.clip(field / vmax, 0.0, 1.0) ** 0.55
+    rgb = RAIN_LUT[(norm * 255).astype(np.uint8)]
+    img = Image.fromarray(rgb, "RGB").resize((size, size), Image.NEAREST)
+    img.save(os.path.join(out_dir, "corrdiff_fine.jpg"), quality=90)
+
+    # Coarse comparison panel: block-average to the INPUT grid so the audience
+    # sees exactly what the global model had to work with.
+    ch, cw = meta["in_shape"][1], meta["in_shape"][2]
+    fh_, fw_ = field.shape
+    coarse = field[: (fh_ // ch) * ch, : (fw_ // cw) * cw]
+    coarse = coarse.reshape(ch, fh_ // ch, cw, fw_ // cw).mean(axis=(1, 3))
+    cnorm = np.clip(coarse / vmax, 0.0, 1.0) ** 0.55
+    crgb = RAIN_LUT[(cnorm * 255).astype(np.uint8)]
+    Image.fromarray(crgb, "RGB").resize((size, size), Image.NEAREST).save(
+        os.path.join(out_dir, "corrdiff_coarse.jpg"), quality=90)
+
+    meta["rain_vmax"] = round(vmax, 3)
+    with open(os.path.join(out_dir, "corrdiff_manifest.json"), "w") as fh:
+        _json.dump(meta, fh, indent=2)
+    return meta
+
+
 if __name__ == "__main__":
     import argparse
 
@@ -230,6 +296,11 @@ if __name__ == "__main__":
     args = p.parse_args()
 
     man = render_all(args.data, args.out, args.size)
+    if os.path.isfile(os.path.join(args.data, "corrdiff.npy")):
+        cd = render_corrdiff(args.data, args.out, args.size)
+        print(f"corrdiff: {cd['in_shape'][1]}x{cd['in_shape'][2]} -> "
+              f"{cd['out_shape'][-2]}x{cd['out_shape'][-1]} "
+              f"({cd['resolution_gain']}x) in {cd['run_s']}s")
     print(f"rendered {man['n_lead']} leads x {len(man['members'])} members -> {args.out}")
     print("spread curve:")
     for row in man["curve"]:
