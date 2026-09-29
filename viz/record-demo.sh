@@ -99,6 +99,46 @@ if curl -s --max-time 5 "$API/state" | grep -q '"corrdiff"'; then
   step "beat: zoom (CorrDiff)"; beat zoom ; sleep 10
 fi
 
+# ---- agent segment -------------------------------------------------------
+# Drive the sandboxed agent through its own REST endpoints so the operator
+# panel populates on camera. POLL for completion rather than sleeping a fixed
+# amount: a model turn is 15-40s depending on load, and a fixed sleep either
+# wastes video or cuts the answer off mid-render.
+agent_wait() {
+  local cap="${1:-70}"
+  for _ in $(seq 1 "$cap"); do
+    local st
+    st=$(curl -s --max-time 5 "$API/state" \
+         | python3 -c 'import json,sys; print(json.load(sys.stdin).get("agent",{}).get("status",""))' 2>/dev/null)
+    [ "$st" = "done" ] && return 0
+    [ "$st" = "error" ] && return 1
+    sleep 1
+  done
+  return 1
+}
+
+if curl -s --max-time 5 "$API/state" | grep -q '"agent"'; then
+  # Park the display on the uncertainty map: it is the strongest still frame
+  # to sit behind the agent panel while the model is thinking.
+  beat spread
+
+  step "agent: ask"
+  curl -s -X POST --max-time 10 \
+    "$API/agent/ask?q=$(python3 -c 'import urllib.parse;print(urllib.parse.quote("What is the catch? What can this not do?"))')" >/dev/null
+  if agent_wait 70; then sleep 7; else step "agent ask did not finish -- continuing"; fi
+
+  step "agent: plan"
+  curl -s -X POST --max-time 10 \
+    "$API/agent/plan?q=$(python3 -c 'import urllib.parse;print(urllib.parse.quote("Show me rain bands over Taiwan in fine detail"))')&execute=false" >/dev/null
+  if agent_wait 70; then sleep 9; else step "agent plan did not finish -- continuing"; fi
+
+  # Land on the zoom beat: the plan just asked for downscaling, so showing the
+  # 25km/2km comparison is the visual answer to the question on screen.
+  if curl -s --max-time 5 "$API/state" | grep -q '"corrdiff"'; then
+    step "beat: zoom (payoff)"; beat zoom ; sleep 8
+  fi
+fi
+
 step "finalizing"
 kill -INT "$FF_PID" 2>/dev/null   # -INT so ffmpeg writes the moov atom
 wait "$FF_PID" 2>/dev/null

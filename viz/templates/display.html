@@ -53,6 +53,10 @@
   .msg { font-size:21px; line-height:1.45; font-weight:300; }
   .msg b { color:var(--acc); font-weight:600; }
   canvas { width:100%; height:150px; display:block; }
+  .aq { font-size:17px; color:var(--dim); font-style:italic; margin-bottom:9px; }
+  .chips span { display:inline-block; background:#131b28; border:1px solid #223049;
+      border-radius:6px; padding:5px 10px; margin:4px 6px 0 0; font-size:15px;
+      color:#c3cfe0; }
   .nodes { display:flex; gap:8px; margin-top:6px; }
     /* Status readouts, NOT buttons -- flat so nobody tries to tap them. */
   .node { flex:1; text-align:center; font-size:14px; color:var(--dim);
@@ -96,6 +100,16 @@
     <div class="panel">
       <h2>What you're seeing</h2>
       <div class="msg" id="msg"></div>
+    </div>
+
+    <!-- Agent panel: hidden until a question is asked, so the attract loop
+         stays clean. The aisle screen should show the visitor's question and
+         the answer/plan -- not just the operator's private console. -->
+    <div class="panel" id="agentPanel" style="display:none">
+      <h2>Asked of the agent</h2>
+      <div class="aq" id="aq"></div>
+      <div class="msg" id="aa"></div>
+      <div class="chips" id="ac"></div>
     </div>
   </aside>
 </main>
@@ -180,6 +194,18 @@ async function tick() {
     const row = man.curve && man.curve[lead];
     document.getElementById('spreadVal').textContent = row ? row.mean_K.toFixed(2) : '0.00';
     document.getElementById('msg').innerHTML = MSG[s.beat] || '';
+
+    const ag = s.agent || {}, ap = document.getElementById('agentPanel');
+    if (ag.status && ag.status !== 'idle' && ag.question) {
+      ap.style.display = 'block';
+      document.getElementById('aq').textContent = '\u201c' + ag.question + '\u201d';
+      document.getElementById('aa').innerHTML =
+        ag.status === 'busy' ? 'thinking&hellip;' : (ag.answer || '');
+      const pl = ag.plan;
+      document.getElementById('ac').innerHTML = pl ?
+        ['members','horizon','region','variable','estimate']
+          .filter(k => pl[k]).map(k => `<span>${pl[k]}</span>`).join('') : '';
+    } else { ap.style.display = 'none'; }
     const b = {idle:'', single:'One forecast', ensemble:'Six members',
                diverge:'Divergence', spread:'Uncertainty map',
                zoom:'km-scale downscaling'}[s.beat] || '';
