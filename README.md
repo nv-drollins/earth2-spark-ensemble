@@ -43,6 +43,23 @@ With 121 GB unified memory per Spark: **~7 concurrent SFNO members per node**,
 
 Budget **~80 GB free disk per node**.
 
+### Verified 6-member ensemble across 3 Sparks
+
+Round-robin scheduling, `MEMBERS=6 STEPS=8`:
+
+| member | mean t2m | min | max | s/step | GPU peak |
+|---|---|---|---|---|---|
+| 0 (control) | 279.67 K | 197.33 | 318.53 | 2.95 s | 16.02 GB |
+| 1 | 280.33 K | 190.09 | 322.45 | 2.78 s | 16.32 GB |
+| 2 | 277.64 K | 133.51 | 344.87 | 4.76 s | 16.32 GB |
+| 3 | 279.82 K | 182.60 | 322.37 | 3.09 s | 16.32 GB |
+| 4 | 280.17 K | 197.15 | 328.15 | 3.00 s | 16.32 GB |
+| 5 | 279.85 K | 198.55 | 334.88 | 5.21 s | 16.32 GB |
+
+6/6 members distinct, **2.69 K ensemble mean spread** -- a real forecast
+spread, not 6 copies of the same run. (Table taken at `--noise 0.05`; the
+default is now 0.02, which keeps the tail members tighter.)
+
 ---
 
 ## Requirements

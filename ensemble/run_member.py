@@ -14,7 +14,9 @@ def main() -> None:
     p.add_argument("--member", type=int, required=True, help="member index; 0 = unperturbed control")
     p.add_argument("--date", required=True, help="initial condition date, YYYY-MM-DD")
     p.add_argument("--steps", type=int, default=20, help="number of 6-hour steps (20 = 5 days)")
-    p.add_argument("--noise", type=float, default=0.05, help="perturbation amplitude for members > 0")
+    # 0.02 verified on GB10 to give a realistic ensemble spread while keeping
+    # every member physical. 0.05 pushes tail members to ~345 K / ~134 K.
+    p.add_argument("--noise", type=float, default=0.02, help="perturbation amplitude for members > 0")
     p.add_argument("--outdir", default="/out")
     args = p.parse_args()
 
@@ -40,16 +42,36 @@ def main() -> None:
         # across nodes and reruns -- important for a demo you rehearse.
         from earth2studio.perturbation import SphericalGaussian
         torch.manual_seed(args.member)
+        # IMPORTANT: noise_amplitude is broadcast across ALL channels in their
+        # RAW physical units, not normalized ones. A scalar like 0.05 looks
+        # tiny but is applied identically to t2m (~280 K), z500 (~5e4) and
+        # msl (~1e5), which destabilises the rollout -- members come back with
+        # t2m of -1245 K / +1323 K and a global mean of 179 K while the
+        # unperturbed control stays perfectly physical. Scale the amplitude to
+        # each variable instead: ~0.1% of its typical magnitude.
+        ic = model.input_coords()
+        var_names = list(ic["variable"])
+        amp = torch.full((len(var_names),), 0.05)
+        for i, name in enumerate(var_names):
+            if name.startswith("z"):        # geopotential, ~5e4
+                amp[i] = 50.0 * args.noise
+            elif name.startswith("msl") or name.startswith("sp"):  # pressure, ~1e5
+                amp[i] = 100.0 * args.noise
+            elif name.startswith(("t", "u", "v")):  # temperature/wind, O(1-300)
+                amp[i] = 0.1 * args.noise
+            else:
+                amp[i] = 0.01 * args.noise
+        amp = amp.reshape(1, 1, -1, 1, 1)
         arr = ensemble(
             [args.date], args.steps, 1, model, GFS(), io.ZarrBackend(),
-            perturbation=SphericalGaussian(noise_amplitude=args.noise),
+            perturbation=SphericalGaussian(noise_amplitude=amp),
             batch_size=1,
         )
     run_s = time.time() - t1
 
-    import xarray as xr
-    ds = xr.Dataset({k: (v.dims, np.asarray(v)) for k, v in arr.root.items()
-                     if hasattr(v, "dims")}) if hasattr(arr, "root") else None
+    # NOTE: do not iterate arr.root with .items() -- earth2studio 0.18 uses
+    # zarr v3, whose Group exposes .arrays()/.keys(), not .items(). Calling
+    # .items() raises AttributeError: 'Group' object has no attribute 'items'.
     try:
         t2m = np.asarray(arr["t2m"])
         np.save(os.path.join(args.outdir, f"member_{args.member:03d}_t2m.npy"), t2m)

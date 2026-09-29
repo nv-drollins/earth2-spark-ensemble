@@ -11,6 +11,7 @@ MEMBERS="${MEMBERS:-6}"
 DATE="${DATE:-$(date -u -d '2 days ago' +%Y-%m-%d)}"
 STEPS="${STEPS:-20}"
 OUTDIR="${OUTDIR:-$HOME/e2out}"
+RUNDIR="${RUNDIR:-$HOME/e2run}"
 
 hdr "Ensemble: $MEMBERS members, init $DATE, $STEPS x 6h steps"
 echo "Nodes: ${NODE_ARR[*]}"
@@ -22,12 +23,15 @@ for ((m=0; m<MEMBERS; m++)); do
   DP=$(docker_prefix_for "$node")
   [[ "$DP" == "NEEDS_PASSWORD" ]] && { err "docker not usable on $node"; continue; }
 
-  on_node "$node" "mkdir -p '$OUTDIR'"
+  on_node "$node" "mkdir -p '$OUTDIR' '$RUNDIR'"
+  # Ship the member script to the node rather than assuming the repo is
+  # cloned there -- the cluster nodes need no git checkout at all.
+  scp -o BatchMode=yes -q "$REPO_ROOT/ensemble/run_member.py" "$node:$RUNDIR/run_member.py"
   echo "  member $m -> $node"
   on_node "$node" "${DP}docker run --rm --gpus all --ipc=host \
       -v '$CACHE_DIR':/root/.cache -v '$OUTDIR':/out \
-      -v '$REPO_ROOT_REMOTE':/repo \
-      '$IMAGE' python /repo/ensemble/run_member.py \
+      -v '$RUNDIR/run_member.py':/run_member.py \
+      '$IMAGE' python /run_member.py \
       --member $m --date '$DATE' --steps $STEPS --outdir /out" \
       > "/tmp/e2_member_${m}.log" 2>&1 &
   pids+=($!)

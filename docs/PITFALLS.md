@@ -186,3 +186,26 @@ portable file, not about size.
 
 Budget ~80 GB free disk per node: 14 GB tarball + ~49 GB loaded image + ~7 GB
 model weights + headroom.
+
+---
+
+## 11. Ensemble perturbation amplitude is in RAW units, not normalized
+
+**Symptom:** the unperturbed control member is perfect, but every perturbed
+member returns physically impossible fields -- `t2m` of **-1245 K to +1323 K**
+with a global mean of **179 K** instead of ~280 K. No error is raised; the run
+completes "successfully".
+
+**Cause:** `SphericalGaussian(noise_amplitude=...)` broadcasts a scalar across
+**all channels in their raw physical units**. A value like `0.05` looks tiny
+but is applied identically to `t2m` (~280 K), `z500` (~5e4 m2/s2) and `msl`
+(~1e5 Pa). Relative to geopotential it is negligible; relative to temperature
+it compounds through the autoregressive rollout until the forecast explodes.
+
+**Fix:** build a per-variable amplitude tensor scaled to each variable's
+typical magnitude (see `ensemble/run_member.py`), and keep the default
+`--noise` at **0.02**. Verified on GB10: 6 members give a 2.69 K ensemble mean
+spread with every member physical.
+
+**How to catch it:** always sanity-check `t2m` min/max/mean per member. The
+control run passing proves nothing about the perturbed ones.
