@@ -7,6 +7,10 @@ LOCAL="${E2_DATA:-$HOME/e2viz/data}"
 OUTDIR="${OUTDIR:-$HOME/e2out}"
 mkdir -p "$LOCAL"
 
+# Drop previously-collected members so a smaller run cannot inherit extras
+# from a larger one. CorrDiff output is kept: it is produced separately.
+rm -f "$LOCAL"/member_* 2>/dev/null
+
 for node in "${NODE_ARR[@]}"; do
   hdr "$node"
   # Container runs as root, so member files are root-owned on the host.

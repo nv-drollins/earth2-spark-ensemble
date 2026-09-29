@@ -18,12 +18,28 @@ def main() -> None:
     # every member physical. 0.05 pushes tail members to ~345 K / ~134 K.
     p.add_argument("--noise", type=float, default=0.02, help="perturbation amplitude for members > 0")
     p.add_argument("--outdir", default="/out")
+    p.add_argument("--ic-file", default=os.environ.get("E2_IC_FILE", ""),
+                   help="shared pre-fetched initial-condition netCDF; "
+                        "guarantees every member starts from identical data")
     args = p.parse_args()
 
-    from earth2studio.data import GFS
+    from earth2studio.data import GFS, DataArrayFile
     from earth2studio.models.px import SFNO
     import earth2studio.io as io
     from earth2studio.run import deterministic, ensemble
+
+    # Every member MUST start from byte-identical initial conditions -- that is
+    # the premise of an ensemble. Six members each calling GFS() independently
+    # do NOT reliably agree: members on one node pulled a different analysis,
+    # leaving them ~36 K from the control AT LEAD 0 and inflating lead-0 spread
+    # from ~0.0004 K to ~1.2 K. Symptom is easy to miss: each member looks
+    # individually plausible. Fix: fetch once (scripts/ensemble.sh does this)
+    # and hand every member the same file.
+    def make_source():
+        if args.ic_file and os.path.isfile(args.ic_file):
+            print(f"[m{args.member}] using shared IC {args.ic_file}", flush=True)
+            return DataArrayFile(args.ic_file)
+        return GFS()
 
     t0 = time.time()
     model = SFNO.load_model(SFNO.load_default_package()).to("cuda")
@@ -36,7 +52,7 @@ def main() -> None:
     t1 = time.time()
     if args.member == 0:
         # Control run: no perturbation.
-        arr = deterministic([args.date], args.steps, model, GFS(), io.ZarrBackend())
+        arr = deterministic([args.date], args.steps, model, make_source(), io.ZarrBackend())
     else:
         # Perturbed member. Seed from the member index so runs are reproducible
         # across nodes and reruns -- important for a demo you rehearse.
@@ -63,7 +79,7 @@ def main() -> None:
                 amp[i] = 0.01 * args.noise
         amp = amp.reshape(1, 1, -1, 1, 1)
         arr = ensemble(
-            [args.date], args.steps, 1, model, GFS(), io.ZarrBackend(),
+            [args.date], args.steps, 1, model, make_source(), io.ZarrBackend(),
             perturbation=SphericalGaussian(noise_amplitude=amp),
             batch_size=1,
         )

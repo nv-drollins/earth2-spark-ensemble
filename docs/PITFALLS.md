@@ -209,3 +209,51 @@ spread with every member physical.
 
 **How to catch it:** always sanity-check `t2m` min/max/mean per member. The
 control run passing proves nothing about the perturbed ones.
+
+---
+
+## 12. Stale member files on a SKIPPED node silently corrupt the ensemble
+
+**Symptom:** two members are byte-identical to each other but differ from the
+rest by ~35 K **at lead 0**, and lead-0 ensemble spread reads ~1.2 K instead of
+~0.0004 K. Every member looks individually plausible, so nothing errors.
+
+**Cause:** a node excluded from this run (see #13) still holds `member_*.npy`
+from an earlier run. `collect.sh` pulls from every node, so those stale files
+overwrite the fresh ones.
+
+**Fix:** clear `member_*` on **every** node at the start of a run — including
+nodes you are about to skip — and clear the local collection directory too.
+Clearing only the nodes you schedule to is not enough.
+
+**How to catch it:** check the control against each member at lead 0. They
+should agree to ~0.001 K. A member matching a *different* member exactly, while
+differing from the control, is always stale data rather than perturbation.
+
+---
+
+## 13. The agent node cannot also run ensemble members
+
+**Symptom:** `torch.AcceleratorError: CUDA error: out of memory` for the members
+scheduled onto one particular node, while the rest succeed. Easy to miss: the
+run reports "one or more members failed" but the others produce valid output.
+
+**Cause:** GB10 has 128 GB **unified** memory. A node hosting a ~35B vLLM for
+the agent has roughly 14 GB free; an SFNO member needs 16 GB.
+
+**Fix:** probe free memory per node and skip any below a threshold
+(`E2_MIN_FREE_GB`, default 24). Set to 0 to schedule everywhere regardless.
+
+---
+
+## 14. Independent `GFS()` calls do not guarantee identical initial conditions
+
+Every ensemble member must start from the **same** data — that is the premise of
+the method. Six members each constructing their own `GFS()` can resolve to
+different analyses under parallel load.
+
+**Fix:** fetch the initial condition **once** into a netCDF file and pass it to
+every member with `--ic-file`, which reads it via `DataArrayFile`. Members log
+`using shared IC <path>` so you can verify all of them actually used it.
+
+This also makes runs reproducible: the same file gives the same ensemble.
