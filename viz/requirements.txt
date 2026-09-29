@@ -1,0 +1,8 @@
+# Presentation layer only -- the WORKSTATION that drives the booth display.
+# The Spark nodes need none of this; they run the NGC container.
+# No GPU required here: rendering is pure numpy + PIL.
+fastapi>=0.104.0
+uvicorn>=0.24.0
+jinja2>=3.1.0
+pillow>=10.0.0
+numpy>=1.24.0

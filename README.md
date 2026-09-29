@@ -157,12 +157,21 @@ PhysicsNeMo, and torch-harmonics that forces several unusual choices:
 
 ## Booth demo (presentation layer)
 
+Runs on the **workstation driving the booth monitor** &mdash; NOT on a Spark
+node. No GPU needed: rendering is pure numpy + PIL.
+
 ```bash
-pip install fastapi uvicorn jinja2 pillow numpy       # workstation only
-./scripts/collect.sh                                   # pull member output from the nodes
-python3 viz/render.py                                  # render globe frames + spread maps
-python3 -m uvicorn viz.server:app --host 0.0.0.0 --port 8500
+pip install -r viz/requirements.txt   # workstation only, one time
+./scripts/collect.sh                  # pull member output back from the nodes
+python3 viz/render.py                 # render globe frames + spread maps
+./viz/start-display.sh                # start the server, prints its URLs
 ```
+
+`start-display.sh` is idempotent (re-running just reports the existing server),
+checks its dependencies, warns if no frames are rendered yet, and prints the
+LAN URLs to open. `./viz/stop-display.sh` stops it.
+
+Override with `E2_PORT` / `E2_HOST` / `E2_FRAMES` if needed.
 
 - **`/display`** &mdash; aisle-facing. Globes, spread map, chaos curve. No controls, nothing blinks.
 - **`/operator`** &mdash; presenter-facing. Story beats, divergence playback, "run new ensemble".
