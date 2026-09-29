@@ -1,0 +1,26 @@
+# earth2-spark-ensemble cluster configuration
+# Copy to cluster.conf and edit. cluster.conf is gitignored -- never commit
+# site-specific hostnames or IPs.
+
+# Space-separated SSH targets, one per Spark. user@host or an ssh_config alias.
+# The FIRST entry is the build node (where the image is built and exported).
+NODES="user@spark-1 user@spark-2 user@spark-3"
+
+# Image name:tag produced by scripts/build.sh
+IMAGE="earth2-spark:1.0"
+
+# Where the offline bundle (image tarball + model weights) is staged on each
+# node. Needs ~25 GB free: 14 GB tarball + ~7 GB weights + headroom.
+BUNDLE_DIR="$HOME/e2dist"
+
+# Host dir bind-mounted to /root/.cache in the container. Model weights and
+# downloaded initial conditions live here so they survive container restarts.
+CACHE_DIR="$HOME/e2cache"
+
+# NGC base image. Must be a linux/arm64 manifest for GB10.
+BASE_IMAGE="nvcr.io/nvidia/physicsnemo/physicsnemo:26.08"
+
+# Pinned component refs -- see docs/PITFALLS.md before changing ANY of these.
+E2S_VERSION="0.18.0"
+MAKANI_REF="main"
+TH_REF="v0.9.2"

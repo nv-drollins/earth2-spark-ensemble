@@ -1,0 +1,145 @@
+# earth2-spark-ensemble
+
+Reproducible **NVIDIA Earth-2** weather-forecasting stack for a cluster of
+**DGX Spark / GB10** systems, built for live demonstration at venues with poor
+or no internet.
+
+Builds the image **once**, exports it as a single portable tarball, and loads it
+onto every node. No per-node internet, no pip resolution at the venue.
+
+Everything in here was verified on real GB10 hardware -- measured numbers below
+are from actual runs, not estimates.
+
+---
+
+## What it runs
+
+**SFNO** (Spherical Fourier Neural Operator) global weather forecasting via
+[Earth2Studio](https://github.com/NVIDIA/earth2studio), on top of the official
+NGC **PhysicsNeMo** container.
+
+SFNO rather than FourCastNet deliberately: FourCastNet is numerically unstable
+at the South Pole and diverges to **-1104 K** by 48 h, while SFNO stays
+physically bounded. See [docs/PITFALLS.md](docs/PITFALLS.md#9-fourcastnet-is-numerically-unstable-at-the-south-pole--use-sfno).
+
+## Measured performance (GB10, 720x1440 global grid)
+
+| Metric | SFNO | FourCastNet |
+|---|---|---|
+| Parameters | 289.4 M | 75.3 M |
+| Model load (cold) | 75.1 s | 7.6 s |
+| Time per 6 h step | **1.79 s** | 0.69 s |
+| GPU peak memory | **16.0 GB** | 1.2 GB |
+| 5-day forecast (20 steps) | ~36 s | ~14 s |
+
+With 121 GB unified memory per Spark: **~7 concurrent SFNO members per node**,
+**~21 across three Sparks**.
+
+| Artifact | Size |
+|---|---|
+| Built image | 48.8 GB |
+| Exported tarball (`zstd -3`) | **14.1 GB** (~2 min 54 s to produce) |
+| SFNO weights (cached separately) | 6.9 GB |
+
+Budget **~80 GB free disk per node**.
+
+---
+
+## Requirements
+
+- 1 or more DGX Spark / GB10 nodes (`aarch64`), Ubuntu 24.04
+- NVIDIA driver + Docker + NVIDIA Container Toolkit on each node
+- Key-based SSH from your workstation to each node (`ssh-copy-id`)
+- `zstd` on each node
+- Internet on the **build node only**, once
+
+Passwordless sudo is **not** required. Scripts probe for docker-group
+membership, fall back to `sudo -n`, and report clearly if neither works rather
+than hanging on a password prompt.
+
+---
+
+## Quick start
+
+```bash
+git clone https://github.com/nv-drollins/earth2-spark-ensemble.git
+cd earth2-spark-ensemble
+
+cp cluster.conf.example cluster.conf
+$EDITOR cluster.conf          # set NODES to your SSH targets
+
+./scripts/preflight.sh        # check every node BEFORE downloading 48 GB
+./scripts/build.sh            # build once on node 1, export the tarball
+./scripts/distribute.sh       # copy + load onto the rest
+./scripts/fetch-models.sh     # pre-stage SFNO weights -- DO THIS WHILE ONLINE
+./scripts/verify.sh           # runtime SFNO + CUDA smoke test on every node
+
+MEMBERS=6 STEPS=20 ./scripts/ensemble.sh
+```
+
+All scripts are idempotent -- re-running skips work that is already done.
+
+### Going to a venue with no internet
+
+`build.sh` + `fetch-models.sh` are the only steps needing connectivity. Run
+both at the office, then carry `$BUNDLE_DIR` (tarball) and `$CACHE_DIR`
+(weights) on a USB stick. On site: `distribute.sh` and `verify.sh` only.
+
+---
+
+## Configuration
+
+Everything site-specific lives in `cluster.conf`, which is **gitignored**. No
+hostnames, IPs, or paths are hardcoded anywhere in the scripts.
+
+```bash
+NODES="user@spark-1 user@spark-2 user@spark-3"   # first entry = build node
+IMAGE="earth2-spark:1.0"
+BUNDLE_DIR="$HOME/e2dist"
+CACHE_DIR="$HOME/e2cache"
+BASE_IMAGE="nvcr.io/nvidia/physicsnemo/physicsnemo:26.08"
+E2S_VERSION="0.18.0"
+MAKANI_REF="main"
+TH_REF="v0.9.2"
+```
+
+---
+
+## Layout
+
+```
+docker/Dockerfile        the verified build recipe, heavily commented
+cluster.conf.example     site config template (copy to cluster.conf)
+scripts/
+  common.sh              shared helpers, config loading, sudo/docker probing
+  preflight.sh           per-node readiness checks (read-only)
+  build.sh               build once on the build node, export tarball
+  distribute.sh          copy + load the image onto every node
+  fetch-models.sh        pre-stage SFNO weights into the cache
+  verify.sh              runtime SFNO + CUDA verification
+  ensemble.sh            fan N members across the cluster
+ensemble/run_member.py   single ensemble member (runs inside the container)
+docs/PITFALLS.md         10 traps hit building this, with symptoms and fixes
+```
+
+---
+
+## Before you change the Dockerfile
+
+Read [docs/PITFALLS.md](docs/PITFALLS.md). The pinned versions are not
+arbitrary -- there is a genuine three-way version deadlock between makani,
+PhysicsNeMo, and torch-harmonics that forces several unusual choices:
+
+- `earth2studio[sfno]` from PyPI **silently downgrades** 0.18.0 -> 0.5.0
+- makani `main` is required, **not** its newest release tag `v0.2.1`
+- torch-harmonics must come from **GitHub**, not PyPI
+- `--no-build-isolation` is mandatory for torch-harmonics
+- SFNO **cannot** be imported during `docker build` (no `libcuda.so.1`)
+
+---
+
+## License
+
+The scripts and documentation in this repository are provided as-is.
+The NGC base image, PhysicsNeMo, Earth2Studio, makani, and the SFNO model
+weights are governed by their own NVIDIA licenses.
