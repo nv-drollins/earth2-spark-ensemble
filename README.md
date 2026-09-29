@@ -155,6 +155,41 @@ PhysicsNeMo, and torch-harmonics that forces several unusual choices:
 
 ---
 
+## Booth demo (presentation layer)
+
+```bash
+pip install fastapi uvicorn jinja2 pillow numpy       # workstation only
+./scripts/collect.sh                                   # pull member output from the nodes
+python3 viz/render.py                                  # render globe frames + spread maps
+python3 -m uvicorn viz.server:app --host 0.0.0.0 --port 8500
+```
+
+- **`/display`** &mdash; aisle-facing. Globes, spread map, chaos curve. No controls, nothing blinks.
+- **`/operator`** &mdash; presenter-facing. Story beats, divergence playback, "run new ensemble".
+
+The display serves **pre-rendered frames**, so a cluster hiccup mid-conversation
+never blanks the booth screen. `Run new ensemble` on the operator page does real
+compute on the Sparks, then re-collects and re-renders.
+
+### The story it tells
+
+Ensemble spread in 2 m temperature, measured on GB10:
+
+| lead | mean spread | max spread |
+|---|---|---|
+| 0 h | **0.0004 K** | 0.00 K |
+| 24 h | 5.80 K | 28.08 K |
+| 48 h | **7.83 K** | 41.39 K |
+
+Six members start effectively identical and fan out monotonically. That curve is
+chaos theory, measured live, in about 30 seconds &mdash; and the spread map shows
+*where* the forecast doesn't know.
+
+Full booth script, audience-by-audience pivots, and the hard questions with
+honest answers: **[docs/DEMO_NARRATIVE.md](docs/DEMO_NARRATIVE.md)**.
+
+---
+
 ## License
 
 The scripts and documentation in this repository are provided as-is.

@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Operator &mdash; Earth-2 Ensemble</title>
+<style>
+  body { background:#0d1118; color:#e8edf5; font-family:"Helvetica Neue",Arial,sans-serif;
+         margin:0; padding:28px 34px; }
+  h1 { font-size:21px; font-weight:400; margin-bottom:4px; }
+  .hint { color:#7f8ba1; font-size:13px; margin-bottom:22px; }
+  .row { display:flex; gap:12px; flex-wrap:wrap; margin-bottom:26px; }
+  button { background:#18202e; color:#e8edf5; border:1px solid #29354a;
+           border-radius:8px; padding:16px 20px; font-size:15px; cursor:pointer;
+           min-width:170px; text-align:left; transition:.12s; }
+  button:hover { background:#202b3d; border-color:#3c4d6a; }
+  button.on { background:#76b900; border-color:#76b900; color:#0d1118; font-weight:600; }
+  button small { display:block; color:#7f8ba1; font-size:12px; margin-top:3px; }
+  button.on small { color:#123; }
+  .wide { min-width:100%; }
+  h2 { font-size:12px; letter-spacing:2px; color:#7f8ba1; text-transform:uppercase;
+       margin:26px 0 10px; }
+  .status { background:#121924; border:1px solid #29354a; border-radius:8px;
+            padding:14px 18px; font-size:14px; color:#9fb0c8; }
+  .status b { color:#e8edf5; }
+  input[type=range] { width:100%; }
+  a { color:#76b900; font-size:13px; }
+</style>
+</head>
+<body>
+<h1>Operator console</h1>
+<div class="hint">Display: <a href="/display" target="_blank">/display</a> &mdash; put that on the aisle-facing screen.</div>
+
+<h2>Story beats</h2>
+<div class="row" id="beats">
+  {% for b in beats %}
+  <button data-beat="{{ b.id }}" onclick="beat('{{ b.id }}')">{{ b.label }}</button>
+  {% endfor %}
+</div>
+
+<h2>Divergence playback</h2>
+<div class="row">
+  <button onclick="post('/api/play')">&#9654;&nbsp; Play divergence<small>advance 0h &rarr; 48h</small></button>
+  <button onclick="post('/api/stop')">&#9632;&nbsp; Stop<small>freeze on current hour</small></button>
+</div>
+<input type="range" id="lead" min="0" max="8" value="0" oninput="setLead(this.value)">
+<div class="hint" id="leadTxt">+0 h</div>
+
+<h2>Cluster</h2>
+<div class="row">
+  <button onclick="if(confirm('Run a NEW ensemble on the cluster? Takes a few minutes.')) post('/api/run')">
+    &#10227;&nbsp; Run new ensemble<small>real compute, then re-render</small></button>
+</div>
+
+<div class="status" id="status">&hellip;</div>
+
+<script>
+async function post(u){ await fetch(u,{method:'POST'}); refresh(); }
+async function beat(b){ await post('/api/beat/'+b); }
+async function setLead(v){ await post('/api/lead/'+v); }
+async function refresh(){
+  try{
+    const s = await (await fetch('/api/state')).json();
+    document.querySelectorAll('#beats button').forEach(b=>
+      b.classList.toggle('on', b.dataset.beat===s.beat));
+    const n = (s.manifest.n_lead||1)-1;
+    const sl = document.getElementById('lead');
+    sl.max = n; sl.value = s.lead;
+    document.getElementById('leadTxt').textContent = '+'+(s.lead*6)+' h';
+    const r = s.run||{};
+    const row = s.manifest.curve && s.manifest.curve[s.lead];
+    document.getElementById('status').innerHTML =
+      `beat <b>${s.beat}</b> &middot; lead <b>+${s.lead*6}h</b> &middot; `+
+      `spread <b>${row?row.mean_K.toFixed(3):'--'} K</b> &middot; `+
+      `members <b>${(s.manifest.members||[]).length}</b> &middot; `+
+      `run <b>${r.status||'idle'}</b> ${r.detail?('&mdash; '+r.detail):''}`;
+  }catch(e){}
+}
+setInterval(refresh, 800); refresh();
+</script>
+</body>
+</html>

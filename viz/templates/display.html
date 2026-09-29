@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Earth-2 Ensemble &mdash; DGX Spark</title>
+<style>
+  :root { --bg:#07090f; --fg:#eef2f8; --dim:#8b97ad; --hot:#e83630; --acc:#76b900; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { background:var(--bg); color:var(--fg);
+         font-family:"Helvetica Neue",Arial,sans-serif; height:100vh;
+         overflow:hidden; display:flex; flex-direction:column; }
+  header { padding:28px 44px 12px; display:flex; align-items:baseline; gap:24px; }
+  h1 { font-size:34px; font-weight:300; letter-spacing:.5px; }
+  h1 b { font-weight:600; color:var(--acc); }
+  .sub { font-size:20px; color:var(--dim); }
+  main { flex:1; display:flex; gap:30px; padding:8px 44px 28px; min-height:0; }
+  .stage { flex:1; display:flex; align-items:center; justify-content:center;
+           position:relative; min-width:0; overflow:hidden; }
+  .grid { display:grid; gap:18px; width:100%; height:100%;
+          place-items:center; grid-template-columns:repeat(3,1fr);
+          grid-auto-rows:1fr; min-height:0; }
+  .grid.one { grid-template-columns:1fr; }
+  /* min-height:0 + min-width:0 are REQUIRED on grid children: without them a
+     grid item refuses to shrink below its content size, so a square globe
+     sizes to the cell WIDTH and overflows the shorter cell HEIGHT (the sphere
+     gets sliced off flat at the bottom). */
+  .cell { position:relative; min-width:0; min-height:0;
+          width:100%; height:100%; padding-bottom:28px;
+          display:flex; align-items:center; justify-content:center; }
+  /* Square by construction; the smaller of width/height wins, so the sphere
+     is always whole. */
+  .cell img { width:auto; height:auto;
+              max-width:100%; max-height:100%; aspect-ratio:1/1;
+              object-fit:contain; border-radius:50%; display:block; }
+  .tag { position:absolute; bottom:0; left:50%; transform:translateX(-50%);
+         font-size:18px; color:#aab6c9; letter-spacing:2px; font-weight:600; }
+  aside { width:390px; display:flex; flex-direction:column; gap:20px;
+          padding-top:10px; }
+  .panel { background:#0d111a; border:1px solid #1b2333; border-radius:10px;
+           padding:18px 20px; }
+  .panel h2 { font-size:17px; font-weight:600; letter-spacing:2px;
+              color:#a7b4c8; text-transform:uppercase; margin-bottom:12px; }
+  .big { font-size:52px; font-weight:200; line-height:1; }
+  .big small { font-size:20px; color:var(--dim); margin-left:6px; }
+  .lead { font-size:34px; font-weight:300; }
+  .msg { font-size:21px; line-height:1.45; font-weight:300; }
+  .msg b { color:var(--acc); font-weight:600; }
+  canvas { width:100%; height:150px; display:block; }
+  .nodes { display:flex; gap:8px; margin-top:6px; }
+    /* Status readouts, NOT buttons -- flat so nobody tries to tap them. */
+  .node { flex:1; text-align:center; font-size:14px; color:var(--dim);
+          background:#0a0e16; border-radius:6px; padding:9px 0; }
+  .node b { display:block; font-size:17px; color:var(--fg); font-weight:500; }
+  footer { padding:0 44px 20px; font-size:13px; color:#5a6478; letter-spacing:.4px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Global Weather Ensemble &mdash; <b>live on 3&times; DGX Spark</b></h1>
+  <span class="sub" id="beatLabel">&nbsp;</span>
+</header>
+
+<main>
+  <div class="stage">
+    <div class="grid" id="grid"></div>
+  </div>
+
+  <aside>
+    <div class="panel">
+      <h2>Forecast lead time</h2>
+      <div class="lead" id="leadTxt">+0 h</div>
+    </div>
+
+    <div class="panel">
+      <h2>Ensemble disagreement</h2>
+      <div class="big"><span id="spreadVal">0.00</span><small>K mean</small></div>
+      <canvas id="curve" width="350" height="150"></canvas>
+    </div>
+
+    <div class="panel">
+      <h2>Cluster</h2>
+      <div class="nodes">
+        <div class="node"><b>Spark 1</b>members 0,3</div>
+        <div class="node"><b>Spark 2</b>members 1,4</div>
+        <div class="node"><b>Spark 3</b>members 2,5</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>What you're seeing</h2>
+      <div class="msg" id="msg"></div>
+    </div>
+  </aside>
+</main>
+
+<footer>
+  SFNO (289M parameters) &middot; 0.25&deg; global grid, 721&times;1440 &middot;
+  initial conditions from NOAA GFS &middot; NVIDIA Earth-2 / PhysicsNeMo
+</footer>
+
+<script>
+const MSG = {
+  idle:     "A global atmospheric model running on three desk-side systems.",
+  single:   "One forecast. Looks authoritative &mdash; but how much should you <b>trust</b> it?",
+  ensemble: "Six forecasts. Identical model, initial conditions nudged by a fraction of a degree.",
+  diverge:  "Watch them separate. Same physics, minutely different starts &mdash; <b>this is chaos</b>.",
+  spread:   "Red is where the members <b>disagree</b>. That map is the real product."
+};
+let last = "";
+
+function drawCurve(curve, lead) {
+  const c = document.getElementById('curve'), x = c.getContext('2d');
+  const W = c.width, H = c.height, P = 26;
+  x.clearRect(0,0,W,H);
+  if (!curve || !curve.length) return;
+  const mx = Math.max(...curve.map(r=>r.mean_K), 1e-6);
+  x.strokeStyle = '#1b2333'; x.lineWidth = 1;
+  x.beginPath(); x.moveTo(P,H-P); x.lineTo(W-6,H-P); x.stroke();
+  x.beginPath(); x.moveTo(P,6);   x.lineTo(P,H-P);   x.stroke();
+  const px = i => P + (W-P-10) * (i/(curve.length-1));
+  const py = v => (H-P) - (H-P-10) * (v/mx);
+  x.strokeStyle = '#76b900'; x.lineWidth = 2.5; x.beginPath();
+  curve.forEach((r,i)=>{ i?x.lineTo(px(i),py(r.mean_K)):x.moveTo(px(i),py(r.mean_K)); });
+  x.stroke();
+  if (lead < curve.length) {
+    x.fillStyle = '#e83630';
+    x.beginPath(); x.arc(px(lead), py(curve[lead].mean_K), 5, 0, 7); x.fill();
+  }
+  x.fillStyle = '#8b97ad'; x.font = '14px Arial';
+  x.fillText('0h', P-6, H-10);
+  x.fillText(curve[curve.length-1].lead_h + 'h', W-34, H-10);
+  x.fillText(mx.toFixed(1)+' K', 2, 12);
+}
+
+async function tick() {
+  try {
+    const s = await (await fetch('/api/state')).json();
+    const man = s.manifest, lead = s.lead;
+    const fr = man.frames && man.frames[String(lead)];
+    const grid = document.getElementById('grid');
+
+    const single = (s.beat === 'idle' || s.beat === 'single');
+    const spreadOnly = (s.beat === 'spread');
+    const key = s.beat + ':' + lead;
+
+    if (fr && key !== last) {
+      last = key;
+      grid.className = 'grid' + ((single || spreadOnly) ? ' one' : '');
+      let html = '';
+      if (spreadOnly) {
+        html = `<div class="cell"><img src="/frames/${fr.spread}">
+                <div class="tag">ENSEMBLE SPREAD</div></div>`;
+      } else if (single) {
+        html = `<div class="cell"><img src="/frames/${fr.members[0]}">
+                <div class="tag">SINGLE FORECAST</div></div>`;
+      } else {
+        html = fr.members.map((f,i)=>`<div class="cell"><img src="/frames/${f}">
+                <div class="tag">MEMBER ${i}</div></div>`).join('');
+      }
+      grid.innerHTML = html;
+    }
+
+    document.getElementById('leadTxt').textContent = '+' + (lead*6) + ' h';
+    const row = man.curve && man.curve[lead];
+    document.getElementById('spreadVal').textContent = row ? row.mean_K.toFixed(2) : '0.00';
+    document.getElementById('msg').innerHTML = MSG[s.beat] || '';
+    const b = {idle:'', single:'One forecast', ensemble:'Six members',
+               diverge:'Divergence', spread:'Uncertainty map'}[s.beat] || '';
+    document.getElementById('beatLabel').textContent = b;
+    drawCurve(man.curve, lead);
+  } catch (e) { /* booth must never show a stack trace */ }
+}
+setInterval(tick, 400); tick();
+</script>
+</body>
+</html>
