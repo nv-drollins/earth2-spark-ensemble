@@ -129,6 +129,56 @@ already have the workstation.
 
 ---
 
+## Limited hardware: hosting the controller ON a Spark
+
+There is nothing in the viz stack that needs a separate machine — it is numpy,
+PIL and FastAPI, all fine on ARM64. If you are carrying three Sparks and no
+fourth box, one Spark can drive the display.
+
+**Choose the Spark that hosts the agent LLM.** It is already excluded from the
+ensemble on memory grounds, so it has CPU headroom for rendering that the
+forecasting nodes do not.
+
+### The one real prerequisite: node-to-node SSH
+
+The controller needs key-based SSH to **every** node *including itself*. Your
+workstation already has this; the Sparks do not have keys to each other.
+
+```bash
+# ON the Spark you have chosen as controller
+ssh-keygen -t ed25519 -N "" -f ~/.ssh/id_ed25519      # if it has no key yet
+ssh-copy-id nvidia@<spark-1>     # yes, including itself
+ssh-copy-id nvidia@<spark-2>
+ssh-copy-id nvidia@<spark-3>
+
+git clone https://github.com/nv-drollins/earth2-spark-ensemble.git
+cd earth2-spark-ensemble
+pip install -r viz/requirements.txt
+cp cluster.conf.example cluster.conf && $EDITOR cluster.conf
+./demo check
+```
+
+Everything then works identically — `./demo` does not care which machine it
+runs on.
+
+### Run the display BROWSER on something else
+
+Even with the controller on a Spark, point a laptop at
+`http://<spark>:8500/display`. A browser running on the Spark shares the GB10
+GPU with the model, and the globe animation stutters. Any cheap laptop renders
+it smoothly.
+
+### What you give up
+
+**The display stops surviving the cluster.** Today the workstation caches every
+rendered frame, so you can power off all three Sparks mid-conversation and the
+globes, spread map, scrub control and CorrDiff comparison keep working — only
+live re-runs are lost. Put the controller on a Spark and that safety net goes
+with it: the node that dies takes the display with it.
+
+On a show floor that property is worth more than one less box. Use the
+Spark-hosted layout when hardware is genuinely constrained, not by default.
+
 ## Troubleshooting
 
 | symptom | cause | fix |
@@ -139,3 +189,5 @@ already have the workstation.
 | Changes to HTML/CSS do nothing | browser cache | hard-refresh (Ctrl+Shift+R); routes already send `no-store` |
 | Agent panel errors | LLM still loading | wait 4-6 min, `./demo status` |
 | Port already in use | another copy running | `./viz/stop-display.sh` or set `E2_PORT` |
+| Agent errors after a reboot | sandbox in `Error` phase | `./demo start` heals it automatically; or `./agent/setup-agent.sh` |
+| Node pings but SSH refused | shutdown stalled on a container stop | wait ~3 min; it clears. Use `./demo shutdown` next time |

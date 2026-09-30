@@ -93,7 +93,24 @@ cmd_start() {
     fi
   fi
 
-  # 2. Display server. This is the part the booth actually needs.
+  # 2. Heal the agent sandbox if the reboot left it in Error. The sandbox
+  #    container does not survive a host reboot, and a sandbox stuck in Error
+  #    silently fails EVERY agent call -- the panel just errors with no clue
+  #    that a one-line fix exists.
+  if [[ -n "$an" ]]; then
+    local phase
+    phase=$(on_node "$an" "openshell sandbox list 2>/dev/null | awk '/^$SBX /{print \$NF}'" 2>/dev/null | tr -d '\r')
+    if [[ "$phase" == "Error" ]]; then
+      warn "sandbox '$SBX' is in Error (normal after a reboot) -- recreating"
+      on_node "$an" "nemoclaw '$SBX' destroy --yes" >/dev/null 2>&1
+      echo "  re-onboarding in the background; agent will be ready in ~2 min"
+      ( bash "$HERE/agent/setup-agent.sh" >/tmp/e2-agent-heal.log 2>&1 & ) 
+    elif [[ -n "$phase" && "$phase" != "Ready" ]]; then
+      warn "sandbox '$SBX' phase: $phase"
+    fi
+  fi
+
+  # 3. Display server. This is the part the booth actually needs.
   bash "$HERE/viz/start-display.sh" || { err "display failed to start"; return 1; }
 
   echo
@@ -135,10 +152,21 @@ cmd_shutdown() {
   # Stop containers BEFORE powering off. A hard poweroff while vLLM holds GPU
   # memory is usually survivable, but a clean stop avoids a wedged container on
   # next boot and makes the restart deterministic.
+  # Use a SHORT timeout and fall back to kill. `docker stop` waits 10s per
+  # container by default, and systemd then waits another 90-120s per unit at
+  # poweroff -- which is exactly the "ping responds but sshd is gone" stall
+  # seen on a real pack-down. Nothing here holds unsaved state: weights and the
+  # image are read-only on disk, and member output is already collected.
   for n in "${NODE_ARR[@]}"; do
     local stopped
-    stopped=$(on_node "$n" "docker ps -q | xargs -r docker stop >/dev/null 2>&1; docker ps -q | wc -l" 2>/dev/null | tr -d '\r')
-    ok "$n  containers stopped (${stopped:-?} still running)"
+    stopped=$(on_node "$n" "docker ps -q | xargs -r docker stop -t 5 >/dev/null 2>&1; \
+                            docker ps -q | xargs -r docker kill >/dev/null 2>&1; \
+                            docker ps -q | wc -l" 2>/dev/null | tr -d '\r')
+    if [[ "${stopped:-1}" == "0" ]]; then
+      ok "$n  all containers stopped"
+    else
+      warn "$n  ${stopped:-?} container(s) still running"
+    fi
   done
 
   echo
