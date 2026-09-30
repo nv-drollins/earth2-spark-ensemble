@@ -54,6 +54,14 @@
   .msg b { color:var(--acc); font-weight:600; }
   canvas { width:100%; height:150px; display:block; }
   .aq { font-size:17px; color:var(--dim); font-style:italic; margin-bottom:9px; }
+  /* Line-clamp rather than scroll: nobody scrolls an aisle-facing display, so
+     an internal scrollbar hides the tail of the answer just as effectively as
+     running off the bottom did. Clamp to 5 lines at a smaller size so a
+     typical 2-3 sentence reply fits whole. */
+  #agentPanel .msg { font-size:17px; line-height:1.35; display:-webkit-box;
+      -webkit-line-clamp:5; -webkit-box-orient:vertical; overflow:hidden; }
+  #agentPanel { flex-shrink:0; }
+  aside { overflow:hidden; }
   .chips span { display:inline-block; background:#131b28; border:1px solid #223049;
       border-radius:6px; padding:5px 10px; margin:4px 6px 0 0; font-size:15px;
       color:#c3cfe0; }

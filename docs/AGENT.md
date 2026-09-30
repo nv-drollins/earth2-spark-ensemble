@@ -193,6 +193,37 @@ to describe behaviour qualitatively and **not** invent numbers.
 Verified: "What is the spread at 24 hours?" → *"At 24 hours the mean spread is
 2.1898 K."* — matching the display exactly.
 
+### An ambiguous fact becomes a false claim
+
+The reference block listed the CorrDiff Taiwan constraint on a line near the
+other model facts. The agent generalised it and told a visitor the **whole
+system** "was trained only on the Taiwan domain, so performance outside that
+region is untested" — while a global map was on screen behind it. Flatly false,
+and exactly the kind of claim that ends a conversation with a domain expert.
+
+Facts that constrain ONE component must say so explicitly, and it is worth
+stating the negative outright:
+
+```
+SFNO forecasts the WHOLE GLOBE. It has no regional restriction.
+Only CorrDiff is limited to the Taiwan domain; that limit does NOT apply to
+  the global forecast.
+Never say the system or SFNO is trained only on Taiwan -- that is false.
+```
+
+Verified after the fix: *"Is the forecast global or just Taiwan?"* → *"The
+forecast is global... the CorrDiff zoom-in step is optional and limited only to
+the Taiwan domain — it does not restrict the underlying global forecast."*
+
+### Keep answers short enough to fit the screen
+
+A three-sentence reply overflowed the display's agent card and the audience read
+half a sentence. `max-height` + `overflow-y:auto` did not help — **nobody
+scrolls an aisle-facing display**, so an internal scrollbar hides the tail just
+as effectively. Fix it in two places: line-clamp the card, and cap the answer
+at the source ("TWO SENTENCES MAXIMUM, under 45 words -- the answer is shown on
+a booth screen and anything longer is cut off").
+
 ### Prompt design, learned the hard way
 
 The first version put the facts as prose in the system prompt. The model then

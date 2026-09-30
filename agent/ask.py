@@ -29,8 +29,12 @@ STATIC_FACTS = """SFNO = Spherical Fourier Neural Operator, 289 million paramete
 Grid: 0.25 degree global, 721 x 1440 points.
 Runs on DGX Spark (GB10) nodes; each member needs 16 GB and about 1.79 s per
   6-hour forecast step.
-CorrDiff downscales roughly 25 km to 2 km (about 12x finer) in ~3.3 s, and is
-  trained on the Taiwan domain only.
+SFNO forecasts the WHOLE GLOBE. It has no regional restriction.
+CorrDiff is a SEPARATE, OPTIONAL zoom-in step. Only CorrDiff is limited to the
+  Taiwan domain; that limit does NOT apply to the global forecast. CorrDiff
+  downscales roughly 25 km to 2 km (about 12x finer) in ~3.3 s.
+Never say the system or SFNO is trained only on Taiwan -- that is false and
+  only CorrDiff has that constraint.
 Initial conditions: NOAA GFS.
 Limits: surrogate model, not physics; does not conserve mass/energy exactly;
   skill degrades past about 10 days. This is inference, not training."""
@@ -94,7 +98,9 @@ def _system() -> str:
     "RULES:\n"
     "1. ANSWER THE QUESTION ASKED. Do not recite an overview of the demo.\n"
     "2. Do not greet or welcome the visitor. Start with the answer.\n"
-    "3. Two or three sentences. Plain prose, no bullet lists, no bold markup.\n"
+    "3. TWO SENTENCES MAXIMUM, under 45 words total. The answer is shown on a\n"
+    "   booth screen and anything longer is cut off. Plain prose, no bullet\n"
+    "   lists, no bold markup.\n"
     "4. Use a number from the reference only if it answers the question.\n"
     "5. Never invent a number or a name. If the reference does not cover it, "
     "say so plainly.\n"
