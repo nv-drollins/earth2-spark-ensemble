@@ -61,18 +61,23 @@
   /* Two-panel comparison captions are longer; shrink so they never wrap and
      split a number from its unit ("2 / km"). */
   .grid.two .tag { font-size:15px; letter-spacing:1px; }
-  aside { width:390px; display:flex; flex-direction:column; gap:14px;
-          padding-top:6px; }
+  aside { width:390px; display:flex; flex-direction:column; gap:11px;
+          padding-top:4px; }
   .panel { background:#0d111a; border:1px solid #1b2333; border-radius:10px;
-           padding:14px 18px; }
+           padding:12px 16px; }
   .panel h2 { font-size:17px; font-weight:600; letter-spacing:2px;
               color:#a7b4c8; text-transform:uppercase; margin-bottom:12px; }
-  .big { font-size:52px; font-weight:200; line-height:1; }
+  .big { font-size:46px; font-weight:200; line-height:1; }
   .big small { font-size:20px; color:var(--dim); margin-left:6px; }
+  /* Spell out what the secondary numbers MEAN. "max 12.1 K" alone reads as
+     "the members are 12 K apart", which is a different (and larger) quantity
+     than the standard deviation we headline. */
+  .subline { font-size:14px; color:var(--dim); margin-top:7px; line-height:1.5; }
+  .subline b { color:#c3cfe0; font-weight:600; }
   .lead { font-size:34px; font-weight:300; }
   .msg { font-size:21px; line-height:1.45; font-weight:300; }
   .msg b { color:var(--acc); font-weight:600; }
-  canvas { width:100%; height:132px; display:block; }
+  canvas { width:100%; height:112px; display:block; }
   .aq { font-size:17px; color:var(--dim); font-style:italic; margin-bottom:9px; }
   /* Line-clamp rather than scroll: nobody scrolls an aisle-facing display, so
      an internal scrollbar hides the tail of the answer just as effectively as
@@ -118,8 +123,9 @@
 
     <div class="panel">
       <h2>Ensemble disagreement</h2>
-      <div class="big"><span id="spreadVal">0.00</span><small>K mean</small></div>
-      <canvas id="curve" width="350" height="150"></canvas>
+      <div class="big"><span id="spreadVal">0.00</span><small>K typical</small></div>
+      <div class="subline" id="spreadSub">&nbsp;</div>
+      <canvas id="curve" width="350" height="132"></canvas>
     </div>
 
     <div class="panel">
@@ -305,6 +311,16 @@ async function tick() {
     if (!scrubbing) lastSent = lead;
     const row = man.curve && man.curve[lead];
     document.getElementById('spreadVal').textContent = row ? row.mean_K.toFixed(2) : '0.00';
+    const sub = document.getElementById('spreadSub');
+    if (sub) {
+      sub.innerHTML = row
+        ? `typical = std. deviation between members<br>` +
+          `peak local disagreement <b>${(row.max_K ?? 0).toFixed(1)} K</b>` +
+          (row.range_mean_K != null
+            ? ` &middot; warmest\u2212coolest member <b>${row.range_mean_K.toFixed(1)} K</b>`
+            : '')
+        : '&nbsp;';
+    }
     document.getElementById('msg').innerHTML = MSG[s.beat] || '';
 
     // Cluster card is data-driven: adding or removing a Spark needs no edit

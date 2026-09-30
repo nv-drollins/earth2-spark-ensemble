@@ -247,11 +247,23 @@ def spread_curve(members: dict[int, np.ndarray]) -> list[dict]:
     rows = []
     for lead in range(n_lead):
         sd = spread_field(members, lead)
+        # Two DIFFERENT quantities, both in Kelvin, easily confused:
+        #   spread  = standard deviation across members (what forecasters mean
+        #             by "ensemble spread"). Robust to one outlier member.
+        #   range   = hottest member minus coldest member at the same point.
+        #             Always larger, and it is what people ASSUME "spread"
+        #             means -- so report it explicitly rather than leaving the
+        #             viewer to misread the std-dev maximum as a temperature
+        #             gap between members.
+        stack = np.stack([members[m][lead] for m in sorted(members)])
+        rng = stack.max(axis=0) - stack.min(axis=0)
         rows.append({
             "lead_h": lead * 6,
             "mean_K": round(float(sd.mean()), 4),
             "max_K": round(float(sd.max()), 2),
             "p99_K": round(float(np.percentile(sd, 99)), 2),
+            "range_mean_K": round(float(rng.mean()), 2),
+            "range_max_K": round(float(rng.max()), 2),
         })
     return rows
 

@@ -40,6 +40,9 @@ try:
     c = m["curve"]
     first, last = c[0], c[-1]
     out = ["CURRENT RUN (these are the numbers on the display right now):",
+           "  NOTE: 'spread' is the STANDARD DEVIATION between members, not the",
+           "  gap between the warmest and coolest member. The warmest-minus-coolest",
+           "  range is always larger. Do not conflate them.",
            f"  {len(m.get('members', []))} ensemble members.",
            f"  Forecast horizon {last['lead_h']} hours ({len(c)-1} steps of 6 hours).",
            f"  Ensemble spread in 2m temperature: {first['mean_K']} K at hour 0, "
@@ -47,7 +50,10 @@ try:
            f"(maximum {last['max_K']} K in the most volatile regions)."]
     for r in c:
         if r["lead_h"] in (24, 48):
-            out.append(f"  At {r['lead_h']} h the mean spread is {r['mean_K']} K.")
+            extra = (f" The warmest-minus-coolest range there averages "
+                     f"{r['range_mean_K']} K." if r.get("range_mean_K") else "")
+            out.append(f"  At {r['lead_h']} h the mean spread is {r['mean_K']} K "
+                       f"(peak local {r.get('max_K','?')} K).{extra}")
     cd = m.get("corrdiff") or {}
     if cd.get("resolution_gain"):
         out.append(f"  CorrDiff downscaling gain this run: {cd['resolution_gain']}x.")
