@@ -173,6 +173,26 @@ a stranger is asking:
 > The reference material does not provide the power consumption for a single
 > DGX Spark machine.
 
+### The agent must read LIVE numbers, not hardcoded ones
+
+The first version baked measured values into the system prompt. After a few
+runs the agent was confidently reciting **5.80 K at 24 hours** while the display
+showed **2.19 K** — different initial date, calmer atmosphere. It reads as a
+hallucination to a visitor, but it was a stale constant.
+
+`agent/ask.sh` now reads the render manifest **on the workstation** and injects
+the current run's numbers into the sandbox as `E2_LIVE_FACTS_B64`. The sandbox
+is deliberately isolated and cannot see the workstation's disk, so it cannot
+read the manifest itself — a `_live_facts()` that only opens a local file
+silently falls back and the agent refuses to quote any figure at all.
+
+Static stack facts (parameter count, grid, hardware) stay in the prompt; only
+per-run measurements are injected. With no manifest available the agent is told
+to describe behaviour qualitatively and **not** invent numbers.
+
+Verified: "What is the spread at 24 hours?" → *"At 24 hours the mean spread is
+2.1898 K."* — matching the display exactly.
+
 ### Prompt design, learned the hard way
 
 The first version put the facts as prose in the system prompt. The model then
