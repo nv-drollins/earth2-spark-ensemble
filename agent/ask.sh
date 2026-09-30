@@ -25,7 +25,7 @@ fi
 
 # The vLLM container's address on the openshell bridge can change when it is
 # recreated, so resolve it each  run rather than baking it into ask.py.
-VIP=$(on_node "$NODE" "docker inspect ${E2_VLLM_CONTAINER:-vllm-server} --format '{{range \$k,\$v := .NetworkSettings.Networks}}{{if eq \$k \"openshell-docker\"}}{{\$v.IPAddress}}{{end}}{{end}}'" 2>/dev/null | tr -d '\r')
+VIP=$(on_node "$NODE" "docker inspect ${E2_VLLM_CONTAINER:-e2-llm} --format '{{range \$k,\$v := .NetworkSettings.Networks}}{{if eq \$k \"openshell-docker\"}}{{\$v.IPAddress}}{{end}}{{end}}'" 2>/dev/null | tr -d '\r')
 [[ -z "$VIP" ]] && { err "vLLM not on the openshell bridge -- run ./agent/setup-agent.sh"; exit 1; }
 
 # Seed the asker into the sandbox (cheap; keeps it in sync with the repo copy).

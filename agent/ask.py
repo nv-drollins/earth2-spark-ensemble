@@ -5,6 +5,20 @@ import json, os, sys, urllib.request
 # Resolved at call time by agent/ask.sh -- the vLLM container's address on the
 # openshell bridge changes whenever the container is recreated.
 VLLM_IP = os.environ.get("E2_VLLM_IP", "172.18.0.3")
+VLLM_PORT = os.environ.get("E2_VLLM_PORT", "8000")
+
+
+def _served_model() -> str:
+    """Ask the endpoint which model it serves (see plan.py for rationale)."""
+    override = os.environ.get("E2_MODEL")
+    if override:
+        return override
+    try:
+        with urllib.request.urlopen(
+                f"http://{VLLM_IP}:{VLLM_PORT}/v1/models", timeout=20) as r:
+            return json.load(r)["data"][0]["id"]
+    except Exception:
+        return "nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4"
 URL = f"http://{VLLM_IP}:8000/v1/chat/completions"
 
 # Facts go in a clearly-labelled reference block, NOT as free prose in the
@@ -42,7 +56,7 @@ SYSTEM = (
 
 def ask(q, max_tokens=240):
     body = json.dumps({
-        "model": "nvidia/Qwen3.6-35B-A3B-NVFP4",
+        "model": _served_model(),
         "messages": [{"role": "system", "content": SYSTEM},
                      {"role": "user", "content": q}],
         "max_tokens": max_tokens,

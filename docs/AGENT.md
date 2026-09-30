@@ -63,8 +63,36 @@ second ~20 GB model you do not need.
 ```
 sandbox:   e2-agent (Debian 13, user `sandbox`, Python 3.13.5)
 runtime:   Hermes Agent (NemoClaw v0.0.124 hermes-sandbox image)
-model:     nvidia/Qwen3.6-35B-A3B-NVFP4 on the host vLLM
+model:     nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4
+host:      the Spark node -- NOT the workstation
 ```
+
+The LLM runs **on a Spark**, not on the machine driving the booth display. The
+workstation only renders frames and serves the UI (numpy + PIL + FastAPI), so
+it needs no GPU at all. A laptop is sufficient for the display role.
+
+### Swapping the served model
+
+```bash
+./agent/serve-model.sh          # serves Nemotron 3.5 Lightning NVFP4
+```
+
+Three traps, each of which cost a restart cycle:
+
+1. **A user systemd unit can own port 8000.** `vllm-server.service` recreates
+   its own container whenever one is removed, so `docker rm -f` loses that race
+   *forever* and you keep serving the old model. Stop the **unit**, not the
+   container: `systemctl --user stop vllm-server.service`.
+2. **`vllm/vllm-openai`'s ENTRYPOINT is `["vllm","serve"]`.** The docker command
+   must be **only** the model id plus flags. `vllm serve <model>` →
+   `unrecognized arguments: serve`; `serve <model>` → `unrecognized arguments:
+   <model>`.
+3. **Verify `/v1/models` reports the id you asked for.** A container showing
+   "Up" can be in a crash loop while the previous model keeps answering.
+
+`ask.py` and `plan.py` now **query the endpoint** for the served model id rather
+than hardcoding it — a stale hardcoded name returns HTTP 404, which reads like
+a network fault rather than a config error.
 
 A real completion from inside the sandbox:
 

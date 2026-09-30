@@ -21,7 +21,24 @@ import urllib.request
 
 VLLM_IP = os.environ.get("E2_VLLM_IP", "172.18.0.3")
 VLLM_PORT = os.environ.get("E2_VLLM_PORT", "8000")
-MODEL = os.environ.get("E2_MODEL", "nvidia/Qwen3.6-35B-A3B-NVFP4")
+def _served_model() -> str:
+    """Ask the endpoint which model it serves.
+
+    Hardcoding a model id breaks silently the moment the served model is
+    swapped: the endpoint answers 404 and it looks like a network fault.
+    """
+    override = os.environ.get("E2_MODEL")
+    if override:
+        return override
+    try:
+        with urllib.request.urlopen(
+                f"http://{VLLM_IP}:{VLLM_PORT}/v1/models", timeout=20) as r:
+            return json.load(r)["data"][0]["id"]
+    except Exception:
+        return "nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4"
+
+
+MODEL = _served_model()
 URL = f"http://{VLLM_IP}:{VLLM_PORT}/v1/chat/completions"
 
 # Hard limits. These are booth-safety rails, not suggestions: a visitor asking

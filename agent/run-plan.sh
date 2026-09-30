@@ -28,7 +28,7 @@ if [[ -z "$NODE" ]]; then
 fi
 [[ -z "$NODE" ]] && { err "no node with nemoclaw -- run ./agent/setup-agent.sh"; exit 1; }
 
-VIP=$(on_node "$NODE" "docker inspect ${E2_VLLM_CONTAINER:-vllm-server} --format '{{range \$k,\$v := .NetworkSettings.Networks}}{{if eq \$k \"openshell-docker\"}}{{\$v.IPAddress}}{{end}}{{end}}'" 2>/dev/null | tr -d '\r')
+VIP=$(on_node "$NODE" "docker inspect ${E2_VLLM_CONTAINER:-e2-llm} --format '{{range \$k,\$v := .NetworkSettings.Networks}}{{if eq \$k \"openshell-docker\"}}{{\$v.IPAddress}}{{end}}{{end}}'" 2>/dev/null | tr -d '\r')
 [[ -z "$VIP" ]] && { err "vLLM not on the openshell bridge -- run ./agent/setup-agent.sh"; exit 1; }
 
 hdr "Question"

@@ -18,7 +18,7 @@ REPO="$(cd "$HERE/.." && pwd)"
 source "$REPO/scripts/common.sh"
 
 SBX="${E2_SANDBOX:-e2-agent}"
-VLLM_CONTAINER="${E2_VLLM_CONTAINER:-vllm-server}"
+VLLM_CONTAINER="${E2_VLLM_CONTAINER:-e2-llm}"
 VLLM_PORT="${E2_VLLM_PORT:-8000}"
 MODEL="${E2_AGENT_MODEL:-}"
 
