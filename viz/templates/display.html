@@ -35,6 +35,26 @@
   .cell img { width:auto; height:auto;
               max-width:100%; max-height:100%; aspect-ratio:1/1;
               object-fit:contain; border-radius:50%; display:block; }
+  /* Spinning globe: a 2:1 equirectangular strip scrolled horizontally inside
+     a circular mask, with radial gradients faking limb darkening and a soft
+     specular highlight. Cheaper and smoother than pre-rendering rotations,
+     and it makes drag-to-spin possible. */
+  /* height:100% + width:auto + aspect-ratio collapses to 0x0: a div is not a
+     replaced element, so there is no intrinsic size for max-width/max-height
+     to resolve against and the box never gets laid out. Drive the size from
+     the cell's HEIGHT (the limiting dimension in this grid) and let
+     aspect-ratio derive the width. */
+  .sphere { position:relative; height:100%; aspect-ratio:1/1; width:auto;
+            margin:0 auto; flex:0 0 auto;
+            border-radius:50%; overflow:hidden; cursor:grab;
+            background-repeat:repeat-x; background-size:auto 100%;
+            box-shadow:0 0 46px rgba(40,90,160,.18); }
+  .sphere:active { cursor:grabbing; }
+  .sphere::after { content:''; position:absolute; inset:0; border-radius:50%;
+    background:
+      radial-gradient(circle at 32% 28%, rgba(255,255,255,.20), transparent 46%),
+      radial-gradient(circle at 50% 50%, transparent 52%, rgba(0,0,0,.62) 100%);
+    pointer-events:none; }
   .tag { position:absolute; bottom:0; left:50%; transform:translateX(-50%);
          font-size:18px; color:#aab6c9; letter-spacing:2px; font-weight:600;
          white-space:nowrap; }
@@ -61,7 +81,10 @@
   #agentPanel .msg { font-size:17px; line-height:1.35; display:-webkit-box;
       -webkit-line-clamp:5; -webkit-box-orient:vertical; overflow:hidden; }
   #agentPanel { flex-shrink:0; }
-  aside { overflow:hidden; }
+  /* Let the sidebar distribute space instead of clipping the lower cards
+     (CLUSTER was being cut off below the fold). */
+  aside { overflow:hidden; min-height:0; }
+  aside .panel { flex-shrink:1; min-height:0; }
   .chips span { display:inline-block; background:#131b28; border:1px solid #223049;
       border-radius:6px; padding:5px 10px; margin:4px 6px 0 0; font-size:15px;
       color:#c3cfe0; }
@@ -186,14 +209,19 @@ async function tick() {
                 <div class="cell"><img src="/frames/corrdiff_fine.jpg">
                   <div class="tag">CORRDIFF &mdash; 2 km (${gain} finer)</div></div>`;
       } else if (spreadOnly) {
-        html = `<div class="cell"><img src="/frames/${fr.spread}">
+        const st = fr.spread_strip || fr.spread;
+        html = `<div class="cell"><div class="sphere" data-strip="/frames/${st}"></div>
                 <div class="tag">ENSEMBLE SPREAD</div></div>`;
       } else if (single) {
-        html = `<div class="cell"><img src="/frames/${fr.members[0]}">
+        const st = (fr.strips && fr.strips[0]) || fr.members[0];
+        html = `<div class="cell"><div class="sphere" data-strip="/frames/${st}"></div>
                 <div class="tag">SINGLE FORECAST</div></div>`;
       } else {
-        html = fr.members.map((f,i)=>`<div class="cell"><img src="/frames/${f}">
-                <div class="tag">MEMBER ${i}</div></div>`).join('');
+        html = fr.members.map((f,i)=>{
+          const st = (fr.strips && fr.strips[i]) || f;
+          return `<div class="cell"><div class="sphere" data-strip="/frames/${st}"></div>
+                <div class="tag">MEMBER ${i}</div></div>`;
+        }).join('');
       }
       grid.innerHTML = html;
     }
@@ -221,6 +249,46 @@ async function tick() {
     drawCurve(man.curve, lead);
   } catch (e) { /* booth must never show a stack trace */ }
 }
+// --- spinning globes -----------------------------------------------------
+// One shared phase keeps all six members in lockstep: independently-animated
+// globes drift apart and read as six different planets rather than six
+// forecasts of the same one.
+let spinDeg = 0, dragging = false, dragX = 0, dragBase = 0, lastT = 0;
+const SPIN_DEG_PER_SEC = 4;   // slow enough not to read as "animation"
+
+function applySpin() {
+  document.querySelectorAll('.sphere').forEach(el => {
+    const strip = el.dataset.strip;
+    if (el.dataset.applied !== strip) {
+      el.style.backgroundImage = `url('${strip}')`;
+      el.dataset.applied = strip;
+    }
+    // Strip is 2:1, so 360 degrees maps to 200% of the element width.
+    el.style.backgroundPositionX = (-spinDeg / 360 * 200) + '%';
+  });
+}
+
+function spinFrame(t) {
+  if (!lastT) lastT = t;
+  const dt = (t - lastT) / 1000; lastT = t;
+  if (!dragging) spinDeg = (spinDeg + SPIN_DEG_PER_SEC * dt) % 360;
+  applySpin();
+  requestAnimationFrame(spinFrame);
+}
+requestAnimationFrame(spinFrame);
+
+// Drag to spin. Bound on the document so a drag that leaves the globe still
+// tracks, and so newly-rendered globes need no rebinding.
+document.addEventListener('mousedown', e => {
+  if (!e.target.classList.contains('sphere')) return;
+  dragging = true; dragX = e.clientX; dragBase = spinDeg; e.preventDefault();
+});
+document.addEventListener('mousemove', e => {
+  if (!dragging) return;
+  spinDeg = (dragBase - (e.clientX - dragX) * 0.35 % 360 + 360) % 360;
+});
+document.addEventListener('mouseup', () => { dragging = false; });
+
 setInterval(tick, 400); tick();
 </script>
 </body>

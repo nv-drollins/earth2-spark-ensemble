@@ -148,6 +148,31 @@ def orthographic(field: np.ndarray, lon0: float, size: int = 900,
     return img
 
 
+def equirect_strip(field: np.ndarray, size: int = 512,
+                   lut: np.ndarray = TEMP_LUT, vmin: float | None = None,
+                   vmax: float | None = None, gamma: float = 1.0) -> Image.Image:
+    """Render the field as a flat equirectangular strip for CSS-sphere spinning.
+
+    Why not pre-render rotated globes: a full spin needs ~24 angles per member
+    per lead. Measured on this workstation that is 1296 images, ~6 minutes of
+    render time and ~108 MB on disk -- and it still locks the demo to fixed
+    rotation steps. One 2:1 strip per member per lead is 75 images total, and
+    the browser can spin it continuously by animating background-position,
+    which also makes mouse-drag possible for free.
+    """
+    if vmin is None:
+        vmin = float(np.nanpercentile(field, 1))
+    if vmax is None:
+        vmax = float(np.nanpercentile(field, 99))
+    norm = np.clip((field - vmin) / max(vmax - vmin, 1e-6), 0.0, 1.0)
+    if gamma != 1.0:
+        norm = norm ** gamma
+    rgb = lut[(norm * 255).astype(np.uint8)]
+    img = Image.fromarray(rgb, "RGB")
+    # 2:1 aspect is what the CSS sphere shader expects (360 deg x 180 deg).
+    return img.resize((size * 2, size), Image.BILINEAR)
+
+
 def spread_field(members: dict[int, np.ndarray], lead: int) -> np.ndarray:
     """Standard deviation across members at one lead time."""
     stack = np.stack([members[m][lead] for m in sorted(members)])
@@ -205,14 +230,21 @@ def render_all(data_dir: str, out_dir: str, size: int = 900,
             img = orthographic(members[m][lead], lon0, size, TEMP_LUT, vmin, vmax)
             name = f"m{m:02d}_l{lead:02d}.jpg"
             img.save(os.path.join(out_dir, name), quality=88)
+            # Flat strip for the browser-side spinning globe.
+            equirect_strip(members[m][lead], 512, TEMP_LUT, vmin, vmax).save(
+                os.path.join(out_dir, f"strip_m{m:02d}_l{lead:02d}.jpg"), quality=82)
         sd = spread_field(members, lead)
         img = orthographic(sd, lon0, size, SPREAD_LUT, smin, smax, gamma=0.6)
         sname = f"spread_l{lead:02d}.jpg"
         img.save(os.path.join(out_dir, sname), quality=88)
+        equirect_strip(sd, 512, SPREAD_LUT, smin, smax, gamma=0.6).save(
+            os.path.join(out_dir, f"strip_spread_l{lead:02d}.jpg"), quality=82)
         manifest["frames"][str(lead)] = {
             "lead_h": lead * 6,
             "members": [f"m{m:02d}_l{lead:02d}.jpg" for m in sorted(members)],
             "spread": sname,
+            "strips": [f"strip_m{m:02d}_l{lead:02d}.jpg" for m in sorted(members)],
+            "spread_strip": f"strip_spread_l{lead:02d}.jpg",
         }
 
     with open(os.path.join(out_dir, "manifest.json"), "w") as fh:

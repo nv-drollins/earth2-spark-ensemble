@@ -72,15 +72,24 @@ def manifest() -> dict:
     return man
 
 
+# Cache-Control: no-store on the HTML routes. Without it a booth kiosk or a
+# recording browser keeps serving a cached page and your CSS/JS changes
+# silently do not appear -- you end up debugging code that is not running.
+_NOCACHE = {"Cache-Control": "no-store, no-cache, must-revalidate",
+            "Pragma": "no-cache"}
+
+
 @app.get("/", response_class=HTMLResponse)
 @app.get("/display", response_class=HTMLResponse)
 async def display() -> HTMLResponse:
-    return HTMLResponse(env.get_template("display.html").render())
+    return HTMLResponse(env.get_template("display.html").render(),
+                        headers=_NOCACHE)
 
 
 @app.get("/operator", response_class=HTMLResponse)
 async def operator() -> HTMLResponse:
-    return HTMLResponse(env.get_template("operator.html").render(beats=BEATS))
+    return HTMLResponse(env.get_template("operator.html").render(beats=BEATS),
+                        headers=_NOCACHE)
 
 
 @app.get("/api/state")
