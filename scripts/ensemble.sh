@@ -71,6 +71,18 @@ done
 ok "shared initial conditions written"
 
 n=${#RUN_NODES[@]}
+
+# Keep the ensemble balanced across the nodes that can actually run it.
+# Without this, MEMBERS=8 on 2 usable nodes leaves an uneven split, and a
+# member scheduled onto a skipped node simply never appears -- the display
+# then shows fewer members than the plan promised, with no error anywhere.
+if (( MEMBERS % n != 0 )); then
+  adjusted=$(( (MEMBERS / n) * n ))
+  (( adjusted < n )) && adjusted=$n
+  warn "adjusting $MEMBERS members -> $adjusted so they divide evenly across $n usable node(s)"
+  MEMBERS=$adjusted
+fi
+
 pids=()
 for ((m=0; m<MEMBERS; m++)); do
   node="${RUN_NODES[$((m % n))]}"

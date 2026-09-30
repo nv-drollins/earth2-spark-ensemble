@@ -30,7 +30,13 @@ SYSTEM = (
     "3. Two or three sentences. Plain prose, no bullet lists, no bold markup.\n"
     "4. Use a number from the reference only if it answers the question.\n"
     "5. Never invent a number or a name. If the reference does not cover it, "
-    "say so plainly.\n\n"
+    "say so plainly.\n"
+    "6. If they are ASKING FOR A FORECAST or for something to be shown or run "
+    "(\"what is the weather tomorrow\", \"will the hurricane hit Florida\", "
+    "\"show me the pressure field\"), do NOT refuse and do NOT lecture them "
+    "about model limitations. Say in one sentence that the demo can run that, "
+    "and that the Plan button turns their question into a real ensemble run "
+    "on the three Sparks. Then add one short sentence of useful context.\n\n"
     "REFERENCE FACTS (background only -- not a script to read out):\n" + FACTS
 )
 

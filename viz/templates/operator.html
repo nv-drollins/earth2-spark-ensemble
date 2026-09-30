@@ -28,8 +28,13 @@
       border:1px solid #29354a; border-radius:8px; padding:14px 16px;
       font-size:15px; }
   input[type=text]:focus { outline:none; border-color:#76b900; }
-  .preset { min-width:auto; padding:13px 15px; font-size:13px;
+  .preset { min-width:auto; padding:11px 14px; font-size:13px;
       background:#131a26; color:#9fb0c8; }
+  .preset i { display:block; font-style:normal; font-size:10px;
+      letter-spacing:1.5px; margin-bottom:3px; }
+  .preset.ask  i { color:#5fa8d3; }
+  .preset.plan i { color:#76b900; }
+  button.armed { border-color:#76b900; box-shadow:0 0 0 1px #76b900 inset; }
   #agentOut { line-height:1.5; }
   #agentOut .qline { color:#7f8ba1; font-size:13px; margin-bottom:8px; }
   #agentOut .ans { color:#e8edf5; font-size:15px; }
@@ -90,27 +95,37 @@
 <div class="status" id="status">&hellip;</div>
 
 <script>
+// Presets are split by INTENT. Sending an action request ("show me X") to Ask
+// gets a correct-but-useless refusal -- the explainer has no forecast to show.
+// Sending an explainer question to Plan wastes a cluster run. So each preset
+// declares which button it belongs to, and clicking it arms that button.
 const PRESETS = [
-  "How much can we trust next week on the US east coast?",
-  "Show me rain bands over Taiwan in fine detail",
-  "What's the weather tomorrow?",
-  "Will the hurricane hit Florida? Show the pressure field",
-  "Why are six forecasts better than one?",
-  "What's the catch? What can't this do?"
+  {t:"Why are six forecasts better than one?",        mode:"ask"},
+  {t:"What's the catch? What can't this do?",         mode:"ask"},
+  {t:"What do the red areas mean?",                   mode:"ask"},
+  {t:"How is this different from a normal forecast?", mode:"ask"},
+  {t:"Show me rain bands over Taiwan in fine detail", mode:"plan"},
+  {t:"How uncertain is the next two days?",           mode:"plan"},
+  {t:"Run a bigger ensemble over the north Atlantic", mode:"plan"},
+  {t:"Give me a quick one-day forecast",              mode:"plan"}
 ];
 document.addEventListener('DOMContentLoaded', () => {
   // Build preset buttons and bind handlers in JS. An inline onclick has to
   // survive Jinja + HTML-attribute + JS-string quoting all at once, and an
   // apostrophe in a question ("What's the catch?") silently breaks it.
   const box = document.getElementById('presets');
-  PRESETS.forEach(text => {
+  PRESETS.forEach(p => {
     const b = document.createElement('button');
-    b.className = 'preset';
-    b.textContent = text;
+    b.className = 'preset ' + p.mode;
+    b.innerHTML = `<i>${p.mode === 'ask' ? 'ASK' : 'PLAN'}</i>${p.t}`;
     b.addEventListener('click', () => {
-      const q = document.getElementById('q');
-      q.value = text;
-      q.focus();
+      document.getElementById('q').value = p.t;
+      // Arm the matching button rather than making the operator remember
+      // which one this question belongs to.
+      document.getElementById(p.mode === 'ask' ? 'bAsk' : 'bPlan')
+              .classList.add('armed');
+      document.getElementById(p.mode === 'ask' ? 'bPlan' : 'bAsk')
+              .classList.remove('armed');
     });
     box.appendChild(b);
   });
