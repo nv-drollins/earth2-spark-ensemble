@@ -77,7 +77,7 @@ Schema:
   "steps":     integer 4-40,      number of 6-hour steps (4 steps = 1 day)
   "noise":     number 0.005-0.05, how much to perturb the starting conditions
   "region":    one of {sorted(REGIONS)},
-  "variable":  one of ["t2m", "msl", "z500", "u10m", "v10m"],
+  "variable":  one of ["t2m", "msl", "z500", "u10m", "v10m", "mrr"],
   "downscale": true or false,     true only if they ask for fine/local detail
   "intent":    one short sentence, what the visitor actually wants to see
 }}
@@ -89,7 +89,11 @@ Guidance:
 - "zoom in / rain bands / local detail / storm structure" -> downscale true
   and region taiwan (the only domain the downscaling model was trained on).
 - Storms/hurricanes -> pick the matching ocean region, more members.
-- temperature -> t2m; pressure/storms -> msl; upper air/jet stream -> z500.
+- temperature -> t2m; pressure/storms -> msl; upper air/jet stream -> z500;
+  wind -> u10m or v10m.
+- RAIN, rainfall, precipitation, rain bands, showers, storms you can SEE ->
+  variable "mrr" AND downscale true AND region taiwan. Rainfall is produced by
+  the downscaling model, not by the global forecast, so those three go together.
 - If the question does not specify something, choose a sensible default."""
 
 
@@ -155,12 +159,6 @@ def validate(raw: dict) -> dict:
     plan["region"] = region
     plan["bounds"] = REGIONS[region]
 
-    variable = str(raw.get("variable", "t2m")).strip().lower()
-    if variable not in ("t2m", "msl", "z500", "u10m", "v10m"):
-        notes.append(f"variable: unknown '{variable}', using t2m")
-        variable = "t2m"
-    plan["variable"] = variable
-
     plan["downscale"] = bool(raw.get("downscale", False))
     # CorrDiff is only trained on its Taiwan domain; downscaling anywhere else
     # would be fabrication dressed up as a result.
@@ -168,6 +166,27 @@ def validate(raw: dict) -> dict:
         notes.append(f"downscale: not available for {plan['region']} "
                      "(CorrDiff is trained on the Taiwan domain only) -- disabled")
         plan["downscale"] = False
+
+    variable = str(raw.get("variable", "t2m")).strip().lower()
+    if variable not in ("t2m", "msl", "z500", "u10m", "v10m", "mrr"):
+        notes.append(f"variable: unknown '{variable}', using t2m")
+        variable = "t2m"
+    plan["variable"] = variable
+
+    # Rainfall (mrr) exists ONLY in the CorrDiff output -- the global SFNO
+    # forecast has no precipitation variable at all. Asking for rain without
+    # downscaling would silently show temperature instead, which is exactly the
+    # kind of quiet wrongness a meteorologist spots first.
+    if variable == "mrr":
+        if not raw.get("downscale", False):
+            notes.append("rainfall comes from the downscaling model -- "
+                         "enabling downscale")
+        plan["downscale"] = True
+        if str(raw.get("region", "")).strip().lower() not in ("taiwan", "east_asia"):
+            notes.append("rainfall is only available in the CorrDiff domain -- "
+                         "switching region to taiwan")
+        plan["region"] = "taiwan"
+        plan["bounds"] = REGIONS["taiwan"]
 
     plan["intent"] = str(raw.get("intent", "")).strip()[:200]
 
