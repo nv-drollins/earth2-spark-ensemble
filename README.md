@@ -76,6 +76,18 @@ than hanging on a password prompt.
 
 ---
 
+## At the booth
+
+```bash
+./demo check      # night before -- full readiness check
+./demo start      # doors open
+./demo status     # what is running, what is not
+./demo stop       # doors close
+```
+
+Full show-floor runbook, including the USB-stick install and the failure
+playbook: **[docs/SHOW_FLOOR.md](docs/SHOW_FLOOR.md)**.
+
 ## Quick start
 
 ```bash
