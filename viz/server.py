@@ -58,6 +58,52 @@ STATE = {
 _lock = threading.Lock()
 
 
+def cluster_layout(n_members: int) -> list[dict]:
+    """Which node runs which members, derived from cluster.conf at request time.
+
+    The display previously hardcoded three Sparks with fixed member indices,
+    which silently lied the moment a node was added, removed, or skipped for
+    memory. Read the roster instead so the card always matches reality.
+    """
+    conf = os.path.join(REPO, "cluster.conf")
+    nodes: list[str] = []
+    try:
+        with open(conf) as fh:
+            for line in fh:
+                if line.strip().startswith("NODES="):
+                    nodes = line.split("=", 1)[1].strip().strip('"\'').split()
+                    break
+    except OSError:
+        pass
+    if not nodes or not n_members:
+        return []
+    # ensemble.sh only schedules onto nodes with enough free memory, so the
+    # roster is NOT the run list: a node hosting the agent LLM runs zero
+    # members. Read the per-node assignment the run actually recorded.
+    assign = _recorded_assignment()
+    out = []
+    if assign:
+        for node in nodes:
+            host = node.split("@")[-1]
+            out.append({"label": host, "members": assign.get(host, [])})
+        return out
+    # Fallback before any run: even round-robin across the whole roster.
+    for i, node in enumerate(nodes):
+        out.append({"label": node.split("@")[-1],
+                    "members": [m for m in range(n_members) if m % len(nodes) == i]})
+    return out
+
+
+def _recorded_assignment() -> dict[str, list[int]]:
+    """node-host -> member indices, written by scripts/ensemble.sh."""
+    path = os.path.join(FRAMES, "assignment.json")
+    try:
+        with open(path) as fh:
+            return {k: sorted(v) for k, v in json.load(fh).items()}
+    except Exception:
+        return {}
+
+
 def manifest() -> dict:
     path = os.path.join(FRAMES, "manifest.json")
     if not os.path.isfile(path):
@@ -105,6 +151,7 @@ async def get_state() -> JSONResponse:
         lead = max(n - 1, 0)
     st["lead"] = max(0, min(lead, max(n - 1, 0)))
     st["manifest"] = man
+    st["cluster"] = cluster_layout(len(man.get("members", [])))
     return JSONResponse(st)
 
 

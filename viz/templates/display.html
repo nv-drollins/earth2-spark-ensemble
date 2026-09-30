@@ -124,11 +124,7 @@
 
     <div class="panel">
       <h2>Cluster</h2>
-      <div class="nodes">
-        <div class="node"><b>Spark 1</b>members 0,3</div>
-        <div class="node"><b>Spark 2</b>members 1,4</div>
-        <div class="node"><b>Spark 3</b>members 2,5</div>
-      </div>
+      <div class="nodes" id="nodes"></div>
     </div>
 
     <div class="panel">
@@ -310,6 +306,16 @@ async function tick() {
     const row = man.curve && man.curve[lead];
     document.getElementById('spreadVal').textContent = row ? row.mean_K.toFixed(2) : '0.00';
     document.getElementById('msg').innerHTML = MSG[s.beat] || '';
+
+    // Cluster card is data-driven: adding or removing a Spark needs no edit
+    // here, and a node running no members shows that honestly.
+    const nodesEl = document.getElementById('nodes');
+    if (nodesEl && s.cluster) {
+      nodesEl.innerHTML = s.cluster.map((c, i) =>
+        `<div class="node"><b>Spark ${i+1}</b>${
+          c.members.length ? 'members ' + c.members.join(',') : 'no members'
+        }</div>`).join('');
+    }
 
     const ag = s.agent || {}, ap = document.getElementById('agentPanel');
     if (ag.status && ag.status !== 'idle' && ag.question) {

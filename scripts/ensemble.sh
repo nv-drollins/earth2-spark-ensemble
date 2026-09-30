@@ -70,6 +70,9 @@ print('IC_WRITTEN', da.shape)\"" >/dev/null 2>&1 || warn "IC fetch failed on $no
 done
 ok "shared initial conditions written"
 
+ASSIGN_TMP=$(mktemp)
+trap 'rm -f "$ASSIGN_TMP"' EXIT
+
 n=${#RUN_NODES[@]}
 
 # Keep the ensemble balanced across the nodes that can actually run it.
@@ -98,6 +101,9 @@ for ((m=0; m<MEMBERS; m++)); do
   # cloned there -- the cluster nodes need no git checkout at all.
   scp -o BatchMode=yes -q "$REPO_ROOT/ensemble/run_member.py" "$node:$RUNDIR/run_member.py"
   echo "  member $m -> $node"
+  # Record the REAL assignment so the display's cluster card reflects which
+  # nodes actually ran members, rather than assuming the whole roster did.
+  echo "${node##*@} $m" >> "$ASSIGN_TMP"
   on_node "$node" "${DP}docker run --rm --gpus all --ipc=host \
       -v '$CACHE_DIR':/root/.cache -v '$OUTDIR':/out \
       -v '$RUNDIR/run_member.py':/run_member.py \
@@ -110,6 +116,19 @@ done
 
 fail=0
 for pid in "${pids[@]}"; do wait "$pid" || fail=1; done
+
+# Publish the assignment next to the rendered frames for the display to read.
+python3 - "$ASSIGN_TMP" "${E2_FRAMES:-$HOME/e2viz/frames}" <<'PY' 2>/dev/null || true
+import json, os, sys
+src, out = sys.argv[1], sys.argv[2]
+d = {}
+for line in open(src):
+    parts = line.split()
+    if len(parts) == 2:
+        d.setdefault(parts[0], []).append(int(parts[1]))
+os.makedirs(out, exist_ok=True)
+json.dump(d, open(os.path.join(out, "assignment.json"), "w"), indent=2)
+PY
 
 hdr "Results"
 grep -h MEMBER_DONE /tmp/e2_member_*.log 2>/dev/null | sed 's/MEMBER_DONE //' || warn "no member output"

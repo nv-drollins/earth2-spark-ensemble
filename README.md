@@ -76,14 +76,92 @@ than hanging on a password prompt.
 
 ---
 
-## The two machines
+## How it is set up
+
+You need **two kinds of machine**: a small cluster of DGX Sparks, and one
+ordinary computer to drive them.
+
+```
+   ┌─────────────────────────┐
+   │  WORKSTATION / laptop   │   no GPU needed
+   │  - renders frames       │   ~250 MB of data
+   │  - serves /display      │   holds the repo
+   │  - drives the cluster   │
+   └───────────┬─────────────┘
+               │  SSH (key-based)
+   ┌───────────┼───────────┬───────────────┐
+   │           │           │               │
+┌──▼───┐   ┌───▼──┐   ┌────▼───┐      ┌────▼────────┐
+│Spark1│   │Spark2│   │ Spark3 │      │ big screen  │
+│member│   │member│   │agent   │      │ browser ->  │
+│  s   │   │  s   │   │ LLM    │      │ /display    │
+└──────┘   └──────┘   └────────┘      └─────────────┘
+  ~57 GB     ~56 GB      ~98 GB
+```
 
 | | runs | needs |
 |---|---|---|
-| **DGX Sparks** | SFNO forecasts, CorrDiff, the agent's LLM | GB10 |
-| **Workstation** | frame rendering + the web UI | **no GPU — a laptop is fine** |
+| **DGX Sparks** (1+) | SFNO forecasts, CorrDiff downscaling, the agent's LLM | GB10, ~80 GB free disk each |
+| **Workstation** | frame rendering, the web UI, cluster control | **no GPU, no CUDA, no Docker** |
 
-Setting up the workstation: **[docs/WORKSTATION.md](docs/WORKSTATION.md)**.
+**The workstation is not optional, but it is not special either.** It holds
+about 250 MB (2 MB of code + collected data + rendered frames) against roughly
+210 GB on the Sparks. All the heavy lifting — every forecast, all 289M-parameter
+SFNO inference, the 30B language model — happens on the GB10s. The workstation
+is a remote control: it issues commands over SSH and turns the returned numpy
+arrays into pictures.
+
+A laptop is genuinely sufficient. Setup: **[docs/WORKSTATION.md](docs/WORKSTATION.md)**.
+
+If you are short on hardware, one Spark can play both roles — see
+[hosting the controller on a Spark](docs/WORKSTATION.md#limited-hardware-hosting-the-controller-on-a-spark),
+including what you give up.
+
+### Node roles
+
+The Spark hosting the agent's LLM has ~15 GB of its 128 GB unified memory free,
+and an SFNO ensemble member needs 16 GB — so `scripts/ensemble.sh` **skips it**
+and splits members across the nodes that can hold them. This is reported by
+`./demo status`, never silent. Stop the LLM and that node rejoins the pool
+automatically.
+
+## Scaling: adding or removing a Spark
+
+**Yes — a new Spark with key-based SSH from the workstation is the whole job.**
+Nothing in the scripts hardcodes a node count or an address; the roster lives
+in one line of `cluster.conf`.
+
+```bash
+ssh-copy-id nvidia@<new-spark>              # 1. key-based SSH
+$EDITOR cluster.conf                        # 2. append to NODES="..."
+./scripts/preflight.sh                       # 3. verify it is ready
+./scripts/distribute.sh                      # 4. copy + load the image (~4 min)
+./scripts/fetch-models.sh                    # 5. stage SFNO weights (or copy ~/e2cache)
+./demo check                                 # 6. confirm
+```
+
+Step 4 needs no internet — it streams the image tarball from the build node
+over the LAN. Step 5 needs internet **or** a copy of `~/e2cache` from an
+existing node.
+
+What adapts automatically:
+
+- **Member scheduling** — round-robin across every node with enough free memory
+- **Member count** — rounded down to divide evenly across usable nodes, so you
+  never get a silently partial ensemble
+- **The display's CLUSTER card** — rendered from the roster and the run's
+  actual assignment, so a fourth Spark appears on the booth screen with no
+  code change
+- **`./demo status`** — reports every node and why any is being skipped
+
+Removing a node is the reverse: drop it from `NODES`. Nothing else references it.
+
+**Sizing guidance.** Ensemble members are independent, so this scales linearly
+and cleanly: ~7 concurrent members fit per Spark (16 GB each of 128 GB), and
+more nodes means more members at the same wall-clock time, not faster members.
+Two forecasting Sparks comfortably run the 6-member demo; a fourth is worth
+adding if you want a larger ensemble on screen, not to make the existing one
+quicker.
 
 ## At the booth
 
