@@ -114,19 +114,32 @@ CorrDiff zoom. Only live re-runs are lost.
 
 ## Node roles (worth knowing before someone asks)
 
-| node | role |
-|---|---|
-| Spark 1 | ensemble members |
-| Spark 2 | ensemble members |
-| Spark 3 | **agent LLM** — contributes no members |
+| node | ensemble members | CorrDiff | agent LLM |
+|---|---|---|---|
+| Spark 1 | **3** | yes | — |
+| Spark 2 | **3** | — | — |
+| Spark 3 | **0** | — | **yes** |
+| Workstation | — | — | — (renders + serves the UI) |
 
-The third Spark hosts the ~30B language model for the agent, which occupies
-most of its 128 GB unified memory. An SFNO member needs 16 GB and there is
-about 15 GB free, so `ensemble.sh` deliberately **skips** it and splits members
-evenly across the other two. This is reported by `./demo status`, not silent.
+**The third Spark does not participate in forecasting at all.** Not the
+ensemble, not the downscaling. It hosts the ~30B language model for the agent,
+which leaves about **15 GB** free of its 128 GB unified memory — and an SFNO
+member needs **16 GB**. One gigabyte short.
 
-If you want all three forecasting, move the LLM to a workstation with a GPU and
-set `E2_AGENT_NODE` accordingly.
+`scripts/ensemble.sh` probes free memory per node and skips any below the
+threshold, so members are split evenly across the two nodes that can hold them.
+`scripts/corrdiff.sh` uses the first node in the list. The third Spark is
+touched only by `collect.sh`, which sweeps every node for output files.
+
+The node is fully capable — the forecast image and SFNO weights are staged on
+it. Stop the LLM and it immediately contributes 2 of 6 members.
+
+This is **reported, never silent**: `./demo status` prints
+`only 15G free -- will be SKIPPED for members`. A run that quietly returns
+fewer members than requested is the failure mode this exists to prevent.
+
+To free it, move the LLM to a GPU workstation and set `E2_AGENT_NODE` — see
+[docs/WORKSTATION.md](WORKSTATION.md#freeing-the-third-spark-for-forecasting).
 
 ---
 

@@ -76,6 +76,15 @@ than hanging on a password prompt.
 
 ---
 
+## The two machines
+
+| | runs | needs |
+|---|---|---|
+| **DGX Sparks** | SFNO forecasts, CorrDiff, the agent's LLM | GB10 |
+| **Workstation** | frame rendering + the web UI | **no GPU — a laptop is fine** |
+
+Setting up the workstation: **[docs/WORKSTATION.md](docs/WORKSTATION.md)**.
+
 ## At the booth
 
 ```bash
