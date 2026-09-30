@@ -71,15 +71,32 @@ Then open two browser windows:
 - **`/display`** on the aisle-facing screen (fullscreen, F11)
 - **`/operator`** on your laptop
 
-**Evening:**
+**Evening (leaving the hardware on):**
 
 ```bash
 ./demo stop
 ```
 
-This leaves the LLM and sandbox running on purpose — they cost nothing idle and
-take five minutes to come back. Use `./demo stop --all` only if you are packing
-the hardware down.
+Leaves the LLM and sandbox running on purpose — they cost nothing idle and take
+five minutes to come back.
+
+**Pack-down (powering the Sparks off):**
+
+```bash
+./demo shutdown     # stops the display + every container on every node
+```
+
+Then power the Sparks off from their desktops, or
+`ssh <node> 'sudo poweroff'`.
+
+On the next boot, `./demo start` is all you need — **rendered frames survive a
+reboot**, so there is nothing to re-render unless you want a fresh ensemble.
+
+### Every command runs on the WORKSTATION
+
+`./demo` lives on the machine driving the display, **not** on a Spark. It
+reaches the nodes over SSH. You never log into a Spark to start or stop the
+demo.
 
 ---
 

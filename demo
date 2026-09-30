@@ -128,11 +128,33 @@ cmd_check() {
   cmd_status
 }
 
+cmd_shutdown() {
+  hdr "Shutting down for pack-down"
+  bash "$HERE/viz/stop-display.sh"
+
+  # Stop containers BEFORE powering off. A hard poweroff while vLLM holds GPU
+  # memory is usually survivable, but a clean stop avoids a wedged container on
+  # next boot and makes the restart deterministic.
+  for n in "${NODE_ARR[@]}"; do
+    local stopped
+    stopped=$(on_node "$n" "docker ps -q | xargs -r docker stop >/dev/null 2>&1; docker ps -q | wc -l" 2>/dev/null | tr -d '\r')
+    ok "$n  containers stopped (${stopped:-?} still running)"
+  done
+
+  echo
+  c_ylw "Sparks are ready to power off."
+  echo "  Power them down from the desktop, or:  ssh <node> 'sudo poweroff'"
+  echo
+  echo "  On next boot:  ./demo start   (the LLM takes 4-6 min to reload)"
+  echo "  Rendered frames survive a reboot -- no re-render needed."
+}
+
 case "${1:-status}" in
-  start)   cmd_start ;;
-  stop)    shift; cmd_stop "${1:-}" ;;
-  restart) cmd_stop; sleep 2; cmd_start ;;
-  status)  cmd_status ;;
-  check)   cmd_check ;;
-  *) echo "usage: ./demo {start|stop [--all]|restart|status|check}"; exit 1 ;;
+  start)    cmd_start ;;
+  stop)     shift; cmd_stop "${1:-}" ;;
+  restart)  cmd_stop; sleep 2; cmd_start ;;
+  status)   cmd_status ;;
+  check)    cmd_check ;;
+  shutdown) cmd_shutdown ;;
+  *) echo "usage: ./demo {start|stop [--all]|restart|status|check|shutdown}"; exit 1 ;;
 esac
