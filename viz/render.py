@@ -63,6 +63,45 @@ TEMP_LUT = _ramp(_TEMP_STOPS)
 SPREAD_LUT = _ramp(_SPREAD_STOPS)
 
 
+# --- coastlines -----------------------------------------------------------
+# Derived from the SFNO package's own land_mask.nc (variable LSM), which is
+# already on the exact 721x1440 forecast grid -- so the coastline lines up with
+# the data by construction and needs no cartopy/geopandas/shapely.
+# Extract once with scripts/make-landmask.sh.
+
+_COAST_CACHE: dict[str, np.ndarray] = {}
+
+
+def coastline_mask(shape: tuple[int, int], data_dir: str) -> np.ndarray | None:
+    """Boolean edge mask: True on land/sea boundaries.
+
+    Returns None when no land mask is available, so the overlay silently
+    degrades to "no coastlines" rather than breaking a render.
+    """
+    key = f"{shape[0]}x{shape[1]}"
+    if key in _COAST_CACHE:
+        return _COAST_CACHE[key]
+    path = os.path.join(data_dir, "land_mask.npy")
+    if not os.path.isfile(path):
+        return None
+    lsm = np.load(path)
+    if lsm.shape != shape:
+        # Nearest-neighbour resample onto the field grid.
+        ri = (np.linspace(0, lsm.shape[0] - 1, shape[0])).astype(np.int32)
+        ci = (np.linspace(0, lsm.shape[1] - 1, shape[1])).astype(np.int32)
+        lsm = lsm[ri][:, ci]
+    land = lsm > 0.5
+    # A coastline is any land cell adjacent to sea (4-neighbour). Rolling the
+    # longitude axis wraps at the date line so there is no artificial seam.
+    edge = np.zeros_like(land, dtype=bool)
+    edge |= land & ~np.roll(land, 1, axis=1)
+    edge |= land & ~np.roll(land, -1, axis=1)
+    edge[1:, :] |= land[1:, :] & ~land[:-1, :]
+    edge[:-1, :] |= land[:-1, :] & ~land[1:, :]
+    _COAST_CACHE[key] = edge
+    return edge
+
+
 def load_members(data_dir: str) -> dict[int, np.ndarray]:
     """Load member t2m arrays, normalized to (lead, lat, lon).
 
@@ -84,7 +123,8 @@ def load_members(data_dir: str) -> dict[int, np.ndarray]:
 def orthographic(field: np.ndarray, lon0: float, size: int = 900,
                  lut: np.ndarray = TEMP_LUT, vmin: float | None = None,
                  vmax: float | None = None, gamma: float = 1.0,
-                 graticule: bool = True) -> Image.Image:
+                 graticule: bool = True,
+                 coast: np.ndarray | None = None) -> Image.Image:
     """Project an equirectangular field onto a globe seen from (0, lon0).
 
     Nearest-neighbour sampling: fast, and at booth viewing distance
@@ -130,6 +170,21 @@ def orthographic(field: np.ndarray, lon0: float, size: int = 900,
     canvas = np.zeros((size, size, 3), dtype=np.uint8)
     canvas[disc] = rgb[disc]
 
+    if coast is not None:
+        # CONTRAST-AWARE stroke. A fixed brighten (+N) fails in both directions:
+        # over pale desert the line vanishes into the data, and over dark ocean
+        # it shouts louder than the science -- loudest where it is least needed.
+        # Instead push each pixel AWAY from its own luminance, and fade the
+        # stroke toward the limb where foreshortening turns coastlines into an
+        # unreadable tangle.
+        cm = coast[ri, ci] & disc & (z > 0.18)
+        if cm.any():
+            px = canvas[cm].astype(np.int16)
+            lum = px.mean(axis=1, keepdims=True)
+            direction = np.where(lum > 128, -1.0, 1.0)      # dark line on light data
+            strength = (46 * np.clip(z[cm], 0, 1)[:, None] + 16) * direction
+            canvas[cm] = (px + strength).clip(0, 255).astype(np.uint8)
+
     if graticule:
         # Faint 30-degree grid gives the eye a geographic anchor. Without any
         # reference an uncertainty blob is unlocatable -- "somewhere on Earth"
@@ -142,7 +197,7 @@ def orthographic(field: np.ndarray, lon0: float, size: int = 900,
             off = np.abs(((lon - glon + 180.0) % 360.0) - 180.0)
             gr |= (off < 0.32 * np.maximum(np.cos(np.radians(lat)), 0.05))
         gr &= disc & (z > 0.06)
-        canvas[gr] = (canvas[gr].astype(np.int16) + 26).clip(0, 255).astype(np.uint8)
+        canvas[gr] = (canvas[gr].astype(np.int16) + 14).clip(0, 255).astype(np.uint8)
 
     img = Image.fromarray(canvas, "RGB")
     return img
@@ -150,7 +205,8 @@ def orthographic(field: np.ndarray, lon0: float, size: int = 900,
 
 def equirect_strip(field: np.ndarray, size: int = 512,
                    lut: np.ndarray = TEMP_LUT, vmin: float | None = None,
-                   vmax: float | None = None, gamma: float = 1.0) -> Image.Image:
+                   vmax: float | None = None, gamma: float = 1.0,
+                   coast: np.ndarray | None = None) -> Image.Image:
     """Render the field as a flat equirectangular strip for CSS-sphere spinning.
 
     Why not pre-render rotated globes: a full spin needs ~24 angles per member
@@ -168,6 +224,12 @@ def equirect_strip(field: np.ndarray, size: int = 512,
     if gamma != 1.0:
         norm = norm ** gamma
     rgb = lut[(norm * 255).astype(np.uint8)]
+    if coast is not None and coast.shape == field.shape:
+        rgb = rgb.copy()
+        px = rgb[coast].astype(np.int16)
+        lum = px.mean(axis=1, keepdims=True)
+        direction = np.where(lum > 128, -1.0, 1.0)
+        rgb[coast] = (px + 52 * direction).clip(0, 255).astype(np.uint8)
     img = Image.fromarray(rgb, "RGB")
     # 2:1 aspect is what the CSS sphere shader expects (360 deg x 180 deg).
     return img.resize((size * 2, size), Image.BILINEAR)
@@ -195,7 +257,7 @@ def spread_curve(members: dict[int, np.ndarray]) -> list[dict]:
 
 
 def render_all(data_dir: str, out_dir: str, size: int = 900,
-               spin_per_lead: float = 9.0) -> dict:
+               spin_per_lead: float = 9.0, coastlines: bool = True) -> dict:
     """Render every frame the booth display needs."""
     members = load_members(data_dir)
     if not members:
@@ -207,6 +269,9 @@ def render_all(data_dir: str, out_dir: str, size: int = 900,
     # Shared colour scale across ALL members and leads, otherwise each frame
     # renormalizes and the globes appear to pulse -- which reads as animation
     # noise at a booth and hides the real signal.
+    coast = coastline_mask(members[sorted(members)[0]][0].shape, data_dir) \
+        if coastlines else None
+
     allv = np.concatenate([members[m][:n_lead].ravel() for m in sorted(members)])
     vmin, vmax = float(np.percentile(allv, 1)), float(np.percentile(allv, 99))
 
@@ -216,6 +281,7 @@ def render_all(data_dir: str, out_dir: str, size: int = 900,
     smin, smax = 0.0, float(np.percentile(sd_final, 99.5))
 
     manifest = {
+        "coastlines_available": coast is not None,
         "members": sorted(members),
         "n_lead": n_lead,
         "temp_range_K": [round(vmin, 2), round(vmax, 2)],
@@ -227,24 +293,36 @@ def render_all(data_dir: str, out_dir: str, size: int = 900,
     for lead in range(n_lead):
         lon0 = (lead * spin_per_lead) % 360.0
         for m in sorted(members):
-            img = orthographic(members[m][lead], lon0, size, TEMP_LUT, vmin, vmax)
+            img = orthographic(members[m][lead], lon0, size, TEMP_LUT, vmin, vmax,
+                               coast=coast)
             name = f"m{m:02d}_l{lead:02d}.jpg"
             img.save(os.path.join(out_dir, name), quality=88)
             # Flat strip for the browser-side spinning globe.
-            equirect_strip(members[m][lead], 512, TEMP_LUT, vmin, vmax).save(
+            equirect_strip(members[m][lead], 512, TEMP_LUT, vmin, vmax,
+                           coast=coast).save(
                 os.path.join(out_dir, f"strip_m{m:02d}_l{lead:02d}.jpg"), quality=82)
+            # Bare variant so the display can toggle coastlines live and the
+            # operator can judge whether they help or intrude.
+            equirect_strip(members[m][lead], 512, TEMP_LUT, vmin, vmax).save(
+                os.path.join(out_dir, f"bare_m{m:02d}_l{lead:02d}.jpg"), quality=82)
         sd = spread_field(members, lead)
-        img = orthographic(sd, lon0, size, SPREAD_LUT, smin, smax, gamma=0.6)
+        img = orthographic(sd, lon0, size, SPREAD_LUT, smin, smax, gamma=0.6,
+                           coast=coast)
         sname = f"spread_l{lead:02d}.jpg"
         img.save(os.path.join(out_dir, sname), quality=88)
-        equirect_strip(sd, 512, SPREAD_LUT, smin, smax, gamma=0.6).save(
+        equirect_strip(sd, 512, SPREAD_LUT, smin, smax, gamma=0.6,
+                       coast=coast).save(
             os.path.join(out_dir, f"strip_spread_l{lead:02d}.jpg"), quality=82)
+        equirect_strip(sd, 512, SPREAD_LUT, smin, smax, gamma=0.6).save(
+            os.path.join(out_dir, f"bare_spread_l{lead:02d}.jpg"), quality=82)
         manifest["frames"][str(lead)] = {
             "lead_h": lead * 6,
             "members": [f"m{m:02d}_l{lead:02d}.jpg" for m in sorted(members)],
             "spread": sname,
             "strips": [f"strip_m{m:02d}_l{lead:02d}.jpg" for m in sorted(members)],
+            "bare_strips": [f"bare_m{m:02d}_l{lead:02d}.jpg" for m in sorted(members)],
             "spread_strip": f"strip_spread_l{lead:02d}.jpg",
+            "bare_spread_strip": f"bare_spread_l{lead:02d}.jpg",
         }
 
     with open(os.path.join(out_dir, "manifest.json"), "w") as fh:

@@ -285,16 +285,19 @@ async function tick() {
                 <div class="cell"><img src="/frames/corrdiff_fine.jpg">
                   <div class="tag">CORRDIFF &mdash; 2 km (${gain} finer)</div></div>`;
       } else if (spreadOnly) {
-        const st = fr.spread_strip || fr.spread;
+        const st = (s.coastlines === false ? fr.bare_spread_strip : fr.spread_strip)
+                   || fr.spread_strip || fr.spread;
         html = `<div class="cell"><div class="sphere" data-strip="/frames/${st}"></div>
                 <div class="tag">ENSEMBLE SPREAD</div></div>`;
       } else if (single) {
-        const st = (fr.strips && fr.strips[0]) || fr.members[0];
+        const sset = (s.coastlines === false && fr.bare_strips) ? fr.bare_strips : fr.strips;
+        const st = (sset && sset[0]) || fr.members[0];
         html = `<div class="cell"><div class="sphere" data-strip="/frames/${st}"></div>
                 <div class="tag">SINGLE FORECAST</div></div>`;
       } else {
+        const sset = (s.coastlines === false && fr.bare_strips) ? fr.bare_strips : fr.strips;
         html = fr.members.map((f,i)=>{
-          const st = (fr.strips && fr.strips[i]) || f;
+          const st = (sset && sset[i]) || f;
           return `<div class="cell"><div class="sphere" data-strip="/frames/${st}"></div>
                 <div class="tag">MEMBER ${i}</div></div>`;
         }).join('');

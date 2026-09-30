@@ -52,6 +52,8 @@ STATE = {
     # terminal.
     "agent": {"status": "idle", "question": "", "answer": "",
               "plan": None, "error": ""},
+    # Coastlines are a taste call -- toggle live rather than re-rendering.
+    "coastlines": True,
 }
 _lock = threading.Lock()
 
@@ -332,3 +334,10 @@ async def agent_clear() -> JSONResponse:
         STATE["agent"] = {"status": "idle", "question": "", "answer": "",
                           "plan": None, "error": ""}
     return JSONResponse({"ok": True})
+
+
+@app.post("/api/coastlines/{on}")
+async def set_coastlines(on: int) -> JSONResponse:
+    with _lock:
+        STATE["coastlines"] = bool(on)
+    return JSONResponse({"ok": True, "coastlines": STATE["coastlines"]})

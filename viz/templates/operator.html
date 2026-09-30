@@ -86,6 +86,11 @@
 <div class="status" id="agentOut" style="margin:12px 0; display:none"></div>
 <div class="row" id="presets"></div>
 
+<h2>Display</h2>
+<div class="row">
+  <button id="bCoast" onclick="toggleCoast()">&#127757;&nbsp; Coastlines<small>toggle on the globes</small></button>
+</div>
+
 <h2>Cluster</h2>
 <div class="row">
   <button onclick="if(confirm('Run a NEW ensemble on the cluster? Takes a few minutes.')) post('/api/run')">
@@ -146,6 +151,12 @@ async function doPlan(exec){
 }
 async function beat(b){ await post('/api/beat/'+b); }
 async function setLead(v){ await post('/api/lead/'+v); }
+let coastOn = true;
+async function toggleCoast(){
+  coastOn = !coastOn;
+  await fetch('/api/coastlines/' + (coastOn ? 1 : 0), {method:'POST'});
+  refresh();
+}
 async function refresh(){
   try{
     const s = await (await fetch('/api/state')).json();
@@ -186,6 +197,10 @@ async function refresh(){
       if (el) { el.disabled = busy; el.style.opacity = busy ? 0.45 : 1;
                 el.style.pointerEvents = busy ? 'none' : 'auto'; }
     });
+
+    coastOn = (s.coastlines !== false);
+    const bc = document.getElementById('bCoast');
+    if (bc) bc.classList.toggle('on', coastOn);
 
     const r = s.run||{};
     const row = s.manifest.curve && s.manifest.curve[s.lead];
