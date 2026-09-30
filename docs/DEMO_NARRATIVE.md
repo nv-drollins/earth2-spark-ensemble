@@ -51,6 +51,23 @@ separate.
 
 ---
 
+## Driving the display by hand
+
+Two direct controls on the aisle screen, both useful when a visitor asks a
+question mid-story:
+
+- **Drag any globe** to spin the whole ensemble. All six share one rotation
+  phase, so they stay comparable.
+- **Drag the ENSEMBLE DISAGREEMENT chart** to scrub through the forecast. It
+  snaps to the 6-hour steps (the only leads that exist), and the globes, the
+  lead-time readout and the marker all follow. Arrow keys step one lead at a
+  time.
+
+The scrub is the better way to make the divergence point than the automatic
+playback: you can stop on the exact hour a visitor asks about, hold there while
+you explain, then carry on. Dragging back to 0 h and forward again is a strong
+"watch this" move.
+
 ## The 90-second booth script
 
 **[0:00 — the hook, while the globe spins]**

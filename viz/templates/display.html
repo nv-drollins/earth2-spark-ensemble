@@ -13,7 +13,7 @@
   h1 { font-size:34px; font-weight:300; letter-spacing:.5px; }
   h1 b { font-weight:600; color:var(--acc); }
   .sub { font-size:20px; color:var(--dim); }
-  main { flex:1; display:flex; gap:30px; padding:8px 44px 28px; min-height:0; }
+  main { flex:1; display:flex; gap:30px; padding:8px 44px 20px; min-height:0; }
   .stage { flex:1; display:flex; align-items:center; justify-content:center;
            position:relative; min-width:0; overflow:hidden; }
   .grid { display:grid; gap:18px; width:100%; height:100%;
@@ -61,10 +61,10 @@
   /* Two-panel comparison captions are longer; shrink so they never wrap and
      split a number from its unit ("2 / km"). */
   .grid.two .tag { font-size:15px; letter-spacing:1px; }
-  aside { width:390px; display:flex; flex-direction:column; gap:20px;
-          padding-top:10px; }
+  aside { width:390px; display:flex; flex-direction:column; gap:14px;
+          padding-top:6px; }
   .panel { background:#0d111a; border:1px solid #1b2333; border-radius:10px;
-           padding:18px 20px; }
+           padding:14px 18px; }
   .panel h2 { font-size:17px; font-weight:600; letter-spacing:2px;
               color:#a7b4c8; text-transform:uppercase; margin-bottom:12px; }
   .big { font-size:52px; font-weight:200; line-height:1; }
@@ -72,7 +72,7 @@
   .lead { font-size:34px; font-weight:300; }
   .msg { font-size:21px; line-height:1.45; font-weight:300; }
   .msg b { color:var(--acc); font-weight:600; }
-  canvas { width:100%; height:150px; display:block; }
+  canvas { width:100%; height:132px; display:block; }
   .aq { font-size:17px; color:var(--dim); font-style:italic; margin-bottom:9px; }
   /* Line-clamp rather than scroll: nobody scrolls an aisle-facing display, so
      an internal scrollbar hides the tail of the answer just as effectively as
@@ -81,10 +81,13 @@
   #agentPanel .msg { font-size:17px; line-height:1.35; display:-webkit-box;
       -webkit-line-clamp:5; -webkit-box-orient:vertical; overflow:hidden; }
   #agentPanel { flex-shrink:0; }
-  /* Let the sidebar distribute space instead of clipping the lower cards
-     (CLUSTER was being cut off below the fold). */
-  aside { overflow:hidden; min-height:0; }
-  aside .panel { flex-shrink:1; min-height:0; }
+  /* The sidebar must not clip its cards: the disagreement chart's tick row and
+     axis labels live in the last 26px of the canvas, and a squeezed card cuts
+     exactly that off -- the scrub control then looks like it has no steps.
+     Let the column scroll if content genuinely exceeds the height. */
+  aside { overflow-y:auto; min-height:0; }
+  aside .panel { flex-shrink:0; }
+  aside::-webkit-scrollbar { width:0; }
   .chips span { display:inline-block; background:#131b28; border:1px solid #223049;
       border-radius:6px; padding:5px 10px; margin:4px 6px 0 0; font-size:15px;
       color:#c3cfe0; }
@@ -161,29 +164,102 @@ const MSG = {
 };
 let last = "";
 
+// Geometry cached from the last draw so pointer handlers can invert
+// x-position -> lead index without recomputing the layout.
+let curveGeom = null;
+
 function drawCurve(curve, lead) {
   const c = document.getElementById('curve'), x = c.getContext('2d');
   const W = c.width, H = c.height, P = 26;
   x.clearRect(0,0,W,H);
+  curveGeom = null;
   if (!curve || !curve.length) return;
   const mx = Math.max(...curve.map(r=>r.mean_K), 1e-6);
+  const px = i => P + (W-P-10) * (i/Math.max(curve.length-1,1));
+  const py = v => (H-P) - (H-P-10) * (v/mx);
+  curveGeom = {P, W, H, n: curve.length, px};
+
+  // Axes
   x.strokeStyle = '#1b2333'; x.lineWidth = 1;
   x.beginPath(); x.moveTo(P,H-P); x.lineTo(W-6,H-P); x.stroke();
   x.beginPath(); x.moveTo(P,6);   x.lineTo(P,H-P);   x.stroke();
-  const px = i => P + (W-P-10) * (i/(curve.length-1));
-  const py = v => (H-P) - (H-P-10) * (v/mx);
+
+  // Step ticks: show the discrete 6-hour increments you can land on, so the
+  // control advertises that it snaps rather than scrubbing continuously.
+  x.strokeStyle = '#24304a';
+  curve.forEach((r,i) => {
+    x.beginPath(); x.moveTo(px(i), H-P); x.lineTo(px(i), H-P+4); x.stroke();
+  });
+
+  // Hover highlight
+  if (hoverLead !== null && hoverLead !== lead && hoverLead < curve.length) {
+    x.strokeStyle = '#3f5170'; x.lineWidth = 1;
+    x.beginPath(); x.moveTo(px(hoverLead), 6); x.lineTo(px(hoverLead), H-P); x.stroke();
+  }
+
+  // Curve
   x.strokeStyle = '#76b900'; x.lineWidth = 2.5; x.beginPath();
   curve.forEach((r,i)=>{ i?x.lineTo(px(i),py(r.mean_K)):x.moveTo(px(i),py(r.mean_K)); });
   x.stroke();
+
+  // Current-lead marker + guide line
   if (lead < curve.length) {
+    x.strokeStyle = 'rgba(232,54,48,.35)'; x.lineWidth = 1;
+    x.beginPath(); x.moveTo(px(lead), 6); x.lineTo(px(lead), H-P); x.stroke();
     x.fillStyle = '#e83630';
-    x.beginPath(); x.arc(px(lead), py(curve[lead].mean_K), 5, 0, 7); x.fill();
+    x.beginPath(); x.arc(px(lead), py(curve[lead].mean_K), 5.5, 0, 7); x.fill();
+    x.strokeStyle = '#fff'; x.lineWidth = 1.5; x.stroke();
   }
+
   x.fillStyle = '#8b97ad'; x.font = '14px Arial';
   x.fillText('0h', P-6, H-10);
   x.fillText(curve[curve.length-1].lead_h + 'h', W-34, H-10);
   x.fillText(mx.toFixed(1)+' K', 2, 12);
 }
+
+// --- scrubbing the disagreement curve ------------------------------------
+// Dragging the chart steps the display through the forecast by hand. Snaps to
+// the discrete 6-hour leads because those are the only frames that exist --
+// a continuous scrub would imply data we do not have.
+let hoverLead = null, scrubbing = false, lastSent = -1;
+
+function leadFromEvent(ev) {
+  if (!curveGeom) return null;
+  const c = document.getElementById('curve');
+  const r = c.getBoundingClientRect();
+  // Canvas is CSS-scaled, so map client x -> canvas x before inverting.
+  const cx = (ev.clientX - r.left) * (c.width / r.width);
+  const {P, W, n} = curveGeom;
+  const t = (cx - P) / Math.max(W - P - 10, 1);
+  return Math.max(0, Math.min(n - 1, Math.round(t * (n - 1))));
+}
+
+async function sendLead(l) {
+  if (l === null || l === lastSent) return;
+  lastSent = l;
+  try { await fetch('/api/lead/' + l, {method:'POST'}); } catch (e) {}
+}
+
+(function bindScrub(){
+  const c = document.getElementById('curve');
+  if (!c) return;
+  c.style.cursor = 'ew-resize';
+  c.addEventListener('mousedown', e => {
+    scrubbing = true; sendLead(leadFromEvent(e)); e.preventDefault();
+  });
+  c.addEventListener('mousemove', e => {
+    hoverLead = leadFromEvent(e);
+    if (scrubbing) sendLead(hoverLead);
+  });
+  c.addEventListener('mouseleave', () => { hoverLead = null; });
+  document.addEventListener('mouseup', () => { scrubbing = false; });
+  // Arrow keys for precise stepping without the mouse.
+  document.addEventListener('keydown', e => {
+    if (!curveGeom) return;
+    if (e.key === 'ArrowRight') sendLead(Math.min(curveGeom.n-1, (lastSent<0?0:lastSent)+1));
+    if (e.key === 'ArrowLeft')  sendLead(Math.max(0, (lastSent<0?0:lastSent)-1));
+  });
+})();
 
 async function tick() {
   try {
@@ -227,6 +303,7 @@ async function tick() {
     }
 
     document.getElementById('leadTxt').textContent = '+' + (lead*6) + ' h';
+    if (!scrubbing) lastSent = lead;
     const row = man.curve && man.curve[lead];
     document.getElementById('spreadVal').textContent = row ? row.mean_K.toFixed(2) : '0.00';
     document.getElementById('msg').innerHTML = MSG[s.beat] || '';
