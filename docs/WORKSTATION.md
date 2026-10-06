@@ -59,6 +59,68 @@ has and reports each node's readiness.
 
 ---
 
+## Complete footprint (for rebuilding on a clean machine)
+
+Everything this project puts on the workstation, exhaustively. Nothing is
+installed system-wide; nothing needs root.
+
+### From the OS (present on any stock Linux/macOS)
+
+`git`, `ssh`, `scp`, `python3` (3.9+), `curl`, `bash`. No compilers, no CUDA,
+no Docker, no NVIDIA anything.
+
+### Python packages — all inside `.venv/`, nothing system-wide
+
+Five direct deps from `viz/requirements.txt`, 19 packages with transitives,
+**~125 MB**:
+
+| direct | pulls in |
+|---|---|
+| `fastapi` | starlette, pydantic, pydantic_core, annotated-types, annotated-doc, typing-inspection, opentelemetry-api |
+| `uvicorn` | click, h11, anyio, idna |
+| `jinja2` | MarkupSafe |
+| `pillow` | — |
+| `numpy` | — |
+
+Delete `.venv/` and this machine is back to stock. Rebuild with the two
+commands under [Install](#install).
+
+### Files written outside the repo
+
+| path | what | size |
+|---|---|---|
+| `~/e2viz/data/` | member arrays pulled by `collect.sh` | ~37 MB per member (~220 MB for 6) |
+| `~/e2viz/frames/` | rendered PNGs + `manifest.json` | ~10 MB |
+| `~/.ssh/` | your key for the Sparks (`ssh-copy-id`) | — |
+| `/tmp/e2-display.log` | uvicorn log | small |
+
+Both `~/e2viz` paths are regenerable: re-run `collect.sh` and `render.py`.
+Override with `E2_DATA` / `E2_FRAMES`.
+
+### Inside the repo clone
+
+| path | committed? |
+|---|---|
+| `.venv/` | no — gitignored |
+| `cluster.conf` | no — gitignored, site-specific |
+| everything else | yes |
+
+### Rebuild on a clean machine
+
+```bash
+git clone https://github.com/nv-drollins/earth2-spark-ensemble.git
+cd earth2-spark-ensemble
+python3 -m venv .venv && .venv/bin/pip install -r viz/requirements.txt
+cp cluster.conf.example cluster.conf && $EDITOR cluster.conf
+ssh-copy-id nvidia@<each-spark>
+./demo check
+```
+
+Then `collect.sh` + `render.py` to repopulate the frames. No state on the old
+workstation is irreplaceable — the Sparks hold everything that matters.
+
+---
+
 ## Two directories outside the repo
 
 Deliberately not in git — they are data, not code, and they survive reboots:

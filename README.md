@@ -127,7 +127,7 @@ automatically.
 
 Because the check runs at launch, **start the agent before the ensemble** — or
 just re-run `ensemble.sh` afterwards to rebalance. See
-[If you are also running the agent](#if-you-are-also-running-the-agent-set-it-up-first).
+[Member placement and the agent node](#member-placement-and-the-agent-node).
 
 ## Scaling: adding or removing a Spark
 
@@ -181,43 +181,109 @@ playbook: **[docs/SHOW_FLOOR.md](docs/SHOW_FLOOR.md)**.
 
 ## Quick start
 
+Two machines are involved and it matters which one you are on:
+
+| | |
+|---|---|
+| **Workstation** | where you run *every* command below. A laptop. No GPU, no CUDA, no Docker. |
+| **Sparks** | do all the compute. You never log into them directly. |
+
+The workstation is not optional — it renders the frames and serves the booth
+display. Everything below runs **on the workstation**.
+
+### 1. Workstation setup (once per machine)
+
 ```bash
 git clone https://github.com/nv-drollins/earth2-spark-ensemble.git
 cd earth2-spark-ensemble
 
-cp cluster.conf.example cluster.conf
-$EDITOR cluster.conf          # set NODES to your SSH targets
+# Display deps are workstation-only (fastapi, uvicorn, jinja2, pillow, numpy).
+# A venv is REQUIRED on Ubuntu 24.04+ : the system python is PEP 668
+# "externally-managed" and a plain `pip install` refuses outright.
+python3 -m venv .venv
+.venv/bin/pip install -r viz/requirements.txt
 
+cp cluster.conf.example cluster.conf
+$EDITOR cluster.conf          # NODES = your Sparks. First entry = build node.
+
+ssh-copy-id nvidia@<spark-1>  # key-based SSH to EVERY node, repeat per node
+```
+
+That is the complete workstation footprint: a git clone, one venv, an SSH key.
+Nothing else is installed on it, ever — see
+[docs/WORKSTATION.md](docs/WORKSTATION.md) to rebuild one from scratch.
+
+### 2. Cluster setup (once per cluster)
+
+```bash
 ./scripts/preflight.sh        # check every node BEFORE downloading 48 GB
 ./scripts/build.sh            # build once on node 1, export the tarball
 ./scripts/distribute.sh       # copy + load onto the rest
 ./scripts/fetch-models.sh     # pre-stage SFNO weights -- DO THIS WHILE ONLINE
 ./scripts/verify.sh           # runtime SFNO + CUDA smoke test on every node
-
-MEMBERS=6 STEPS=20 ./scripts/ensemble.sh
 ```
 
-All scripts are idempotent -- re-running skips work that is already done.
+### 3. Agent (optional — but if you want it, do it BEFORE the ensemble)
 
-### If you are also running the agent, set it up FIRST
+```bash
+E2_AGENT_NODE=nvidia@<spark-3> ./agent/setup-agent.sh   # ~4-6 min to load
+```
+
+Skip this and you simply get no agent panel. Why the order matters is
+explained under [Member placement](#member-placement-and-the-agent-node)
+below — short version: the agent's LLM makes its node ineligible for members,
+and `ensemble.sh` decides that at launch.
+
+### 4. Run a forecast and put it on screen
+
+**This is the part that makes the display show something.** An ensemble
+produces `.npy` arrays *on the Sparks*; they have to be pulled back and
+turned into images before the browser has anything to render.
+
+```bash
+MEMBERS=6 STEPS=20 ./scripts/ensemble.sh   # compute on the Sparks (~2-4 min)
+./scripts/collect.sh                       # pull member arrays -> ~/e2viz/data
+.venv/bin/python viz/render.py             # arrays -> frames in ~/e2viz/frames
+./demo start                               # serve /display and /operator
+```
+
+`./demo start` prints the two URLs. Put `/display` on the big screen and keep
+`/operator` on your laptop.
+
+> Skipping `collect.sh` or `render.py` is the usual reason the display comes
+> up **empty** — the server starts fine, there are just no frames to show.
+> `start-display.sh` warns when `~/e2viz/frames/manifest.json` is missing.
+>
+> Use `.venv/bin/python` for `render.py`, not bare `python3` — numpy and
+> pillow live in the venv.
+
+### Daily operation
+
+Once set up, the booth loop is just:
+
+```bash
+./demo start     # bring everything up
+./demo status    # what is running, which nodes run members, LLM state
+./demo stop      # stop the display, LEAVE the LLM loaded (it takes ~5 min)
+```
+
+Re-running steps is safe — every script is idempotent and skips work already
+done.
+
+### Member placement and the agent node
 
 `ensemble.sh` decides where members go by probing **free memory at launch**,
 skipping any node with less than `E2_MIN_FREE_GB` (default 24 GB) because one
 SFNO member needs 16 GB. The agent's ~30B vLLM leaves its host with ~15 GB
 free, so that node drops out and the members rebalance onto the rest.
 
-Order matters:
+With 3 Sparks: no agent → 2+2+2. Agent running → the agent node is skipped and
+you get 3+3 on the other two.
 
-```bash
-E2_AGENT_NODE=user@spark-3 ./agent/setup-agent.sh   # loads vLLM, ~4-6 min
-MEMBERS=6 STEPS=20 ./scripts/ensemble.sh            # now 3 + 3 on two nodes
-```
-
-Run the ensemble first and all three nodes are still idle, so you get 2+2+2 --
-then the agent node is hosting both an LLM and two members. **Just re-run
-`ensemble.sh` after the LLM is up**; it re-probes every time, clears stale
-member output on every node (including skipped ones), and rebalances. Nothing
-to move by hand.
+If you started the ensemble first and then brought the agent up, **just re-run
+`ensemble.sh`** — it re-probes every time, clears stale member output on every
+node (including skipped ones), and rebalances. Nothing to move by hand. Then
+re-run `collect.sh` and `render.py` to refresh the display.
 
 `./demo status` names the skipped node and the free-memory reason, so a node
 contributing zero members reads as intended rather than broken.
