@@ -44,8 +44,8 @@ Windows is untested. Use WSL2 if that is all you have.
 git clone https://github.com/nv-drollins/earth2-spark-ensemble.git
 cd earth2-spark-ensemble
 
-python3 -m venv .venv && source .venv/bin/activate    # optional but tidy
-pip install -r viz/requirements.txt
+python3 -m venv .venv                      # REQUIRED on Ubuntu 24.04+ (PEP 668)
+.venv/bin/pip install -r viz/requirements.txt
 
 cp cluster.conf.example cluster.conf
 $EDITOR cluster.conf        # set NODES to your SSH targets
@@ -153,7 +153,7 @@ ssh-copy-id nvidia@<spark-3>
 
 git clone https://github.com/nv-drollins/earth2-spark-ensemble.git
 cd earth2-spark-ensemble
-pip install -r viz/requirements.txt
+python3 -m venv .venv && .venv/bin/pip install -r viz/requirements.txt
 cp cluster.conf.example cluster.conf && $EDITOR cluster.conf
 ./demo check
 ```
@@ -184,7 +184,7 @@ Spark-hosted layout when hardware is genuinely constrained, not by default.
 | symptom | cause | fix |
 |---|---|---|
 | `./demo check` fails on SSH | no key-based auth | `ssh-copy-id nvidia@<node>` |
-| `Missing Python packages` | venv not active | `pip install -r viz/requirements.txt` |
+| `Missing Python packages` | deps not installed locally; on Ubuntu 24.04+ plain `pip` refuses (PEP 668 `externally-managed-environment`) | `python3 -m venv .venv && .venv/bin/pip install -r viz/requirements.txt` — `start-display.sh` finds `.venv` automatically |
 | Display loads but globes are blank | no frames rendered | `./scripts/collect.sh && python3 viz/render.py` |
 | Changes to HTML/CSS do nothing | browser cache | hard-refresh (Ctrl+Shift+R); routes already send `no-store` |
 | Agent panel errors | LLM still loading | wait 4-6 min, `./demo status` |

@@ -24,8 +24,16 @@ if curl -s -o /dev/null --max-time 3 "http://127.0.0.1:${PORT}/api/state" 2>/dev
   exit 0
 fi
 
+# Pick the interpreter: a repo-local .venv if present, else bare python3.
+# Ubuntu 24.04 (and any PEP 668 distro) marks the system interpreter
+# EXTERNALLY-MANAGED, so `pip install -r requirements.txt` refuses outright
+# with "error: externally-managed-environment". A venv is the supported way
+# in, and the display deps are pure-python -- no system packages needed.
+PY="python3"
+[[ -x "$REPO/.venv/bin/python" ]] && PY="$REPO/.venv/bin/python"
+
 # Deps present?
-missing=$(python3 - <<'PY'
+missing=$("$PY" - <<'PY'
 # NOTE: `import importlib` alone does NOT expose importlib.util -- the submodule
 # must be imported explicitly, or this raises
 # AttributeError: module 'importlib' has no attribute 'util'
@@ -37,8 +45,13 @@ PY
 )
 if [[ -n "${missing// /}" ]]; then
   c_red "Missing Python packages: $missing"
-  echo "Install them with:"
-  echo "    pip install -r $REPO/viz/requirements.txt"
+  echo "This machine drives the booth display, so it needs them locally."
+  echo "Ubuntu 24.04+ blocks system-wide pip (PEP 668), so use a venv:"
+  echo
+  echo "    python3 -m venv $REPO/.venv"
+  echo "    $REPO/.venv/bin/pip install -r $REPO/viz/requirements.txt"
+  echo
+  echo "Then re-run ./demo start -- this script finds .venv automatically."
   exit 1
 fi
 
@@ -47,13 +60,13 @@ if [[ ! -f "$E2_FRAMES/manifest.json" ]]; then
   c_ylw "No rendered frames at $E2_FRAMES"
   echo "The display will come up empty. To populate it:"
   echo "    $REPO/scripts/collect.sh        # pull member output from the nodes"
-  echo "    python3 $REPO/viz/render.py     # render globes + spread maps"
+  echo "    $PY $REPO/viz/render.py     # render globes + spread maps"
   echo
 fi
 
 c_grn "Starting booth display on port ${PORT} (frames: $E2_FRAMES)"
 cd "$REPO" || exit 1
-nohup python3 -m uvicorn viz.server:app --host "$HOST" --port "$PORT" \
+nohup "$PY" -m uvicorn viz.server:app --host "$HOST" --port "$PORT" \
   > /tmp/e2-display.log 2>&1 &
 disown
 

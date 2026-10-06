@@ -291,9 +291,12 @@ Runs on the **workstation driving the booth monitor** &mdash; NOT on a Spark
 node. No GPU needed: rendering is pure numpy + PIL.
 
 ```bash
-pip install -r viz/requirements.txt   # workstation only, one time
+# workstation only, one time. A venv is REQUIRED on Ubuntu 24.04+ (PEP 668):
+# plain pip refuses with "error: externally-managed-environment".
+python3 -m venv .venv && .venv/bin/pip install -r viz/requirements.txt
+
 ./scripts/collect.sh                  # pull member output back from the nodes
-python3 viz/render.py                 # render globe frames + spread maps
+.venv/bin/python viz/render.py        # render globe frames + spread maps
 ./viz/start-display.sh                # start the server, prints its URLs
 ```
 
