@@ -102,11 +102,40 @@ on_node "$NODE" "nemoclaw '$SBX' policy-add --from-file /tmp/e2-vllm.yaml --trus
   && ok "egress policy applied (inference endpoints only)" || warn "policy-add reported an issue"
 
 # 4. Prove it end to end -- a sandbox that cannot reach the model is useless.
+#
+# `openshell sandbox exec` HANGS INTERMITTENTLY and does not honour its own
+# --timeout: observed wedged for 6+ minutes with --timeout 30 while an
+# identical concurrent call returned 200 in under a second. Without an
+# external guard that hangs setup-agent.sh forever at the final step, with
+# everything already working -- the worst possible failure mode.
+#
+# So: wrap in `timeout` (SIGKILL after a grace period, because the CLI also
+# ignores SIGTERM when wedged) and retry. A retry is cheap and usually wins,
+# since the hang is intermittent rather than a real connectivity fault.
+#
+# Quoting note: on_node() already re-quotes the whole command with printf %q
+# for the remote `bash -lc`. Nesting another quoted `bash -lc "curl ..."`
+# inside that does NOT survive the round-trip -- it arrives as an unterminated
+# string ("unexpected EOF while looking for matching `\"'"). Invoke curl
+# directly as the exec argv instead; no inner shell is needed.
 hdr "Verification"
-RESP=$(on_node "$NODE" "openshell sandbox exec --name '$SBX' --no-tty --timeout 30 -- bash -lc \"curl -s --max-time 15 http://$VIP:$VLLM_PORT/v1/models\"" 2>/dev/null)
+VERIFY_CMD="openshell sandbox exec --name $SBX --no-tty --timeout 30 -- \
+curl -s --max-time 15 http://$VIP:$VLLM_PORT/v1/models"
+
+RESP=""
+for attempt in 1 2 3; do
+  RESP=$(on_node "$NODE" "timeout -k 5 45 $VERIFY_CMD" 2>/dev/null)
+  grep -q '"object"' <<< "$RESP" && break
+  [[ $attempt -lt 3 ]] && warn "verification attempt $attempt timed out or failed -- retrying"
+done
+
 if grep -q '"object"' <<< "$RESP"; then
   ok "sandbox reaches the model"
 else
-  err "sandbox cannot reach the model:"; sed 's/^/       /' <<< "$(head -c 300 <<< "$RESP")"; exit 1
+  err "sandbox cannot reach the model after 3 attempts:"
+  sed 's/^/       /' <<< "$(head -c 300 <<< "$RESP")"
+  echo "  If the model answers from the host but the sandbox times out, check"
+  echo "  for a wedged exec:  pgrep -af 'openshell sandbox exec'"
+  exit 1
 fi
 c_grn "Agent sandbox '$SBX' ready on $NODE."
