@@ -15,10 +15,21 @@ DP=$(docker_prefix_for "$node")
 on_node "$node" "mkdir -p '$OUTDIR' '$RUNDIR'"
 scp -o BatchMode=yes -q "$REPO_ROOT/ensemble/run_corrdiff.py" "$node:$RUNDIR/run_corrdiff.py"
 
-on_node "$node" "${DP}docker run --rm --gpus all --ipc=host \
+# Keep the progress lines, but never swallow a hard failure: piping straight
+# into `grep CORRDIFF_DONE` hides docker errors (a wrong IMAGE tag surfaced
+# only as "nothing collected", which reads like a CorrDiff bug, not a typo).
+LOG=$(mktemp); trap 'rm -f "$LOG"' EXIT
+if ! on_node "$node" "${DP}docker run --rm --gpus all --ipc=host \
   -v '$CACHE_DIR':/root/.cache -v '$OUTDIR':/out \
   -v '$RUNDIR/run_corrdiff.py':/run_corrdiff.py \
-  '$IMAGE' python /run_corrdiff.py --date '$DATE' --outdir /out" 2>&1 | grep -E "CORRDIFF_DONE|corrdiff" | tail -2
+  '$IMAGE' python /run_corrdiff.py --date '$DATE' --outdir /out" >"$LOG" 2>&1; then
+  err "CorrDiff failed on $node:"; tail -5 "$LOG" | sed 's/^/       /'
+  grep -q 'Unable to find image' "$LOG" && \
+    echo "       IMAGE='$IMAGE' is not on $node -- check: docker images | grep earth2"
+  exit 1
+fi
+grep -E "CORRDIFF_DONE|corrdiff" "$LOG" | tail -2
 
 mkdir -p "$LOCAL"
-scp -o BatchMode=yes -q "$node:$OUTDIR/corrdiff*" "$LOCAL/" 2>/dev/null && ok "collected" || warn "nothing collected"
+scp -o BatchMode=yes -q "$node:$OUTDIR/corrdiff*" "$LOCAL/" 2>/dev/null \
+  && ok "collected" || { err "ran but collected nothing from $node:$OUTDIR"; exit 1; }

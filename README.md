@@ -265,10 +265,19 @@ turned into images before the browser has anything to render.
 
 ```bash
 MEMBERS=6 STEPS=20 ./scripts/ensemble.sh   # compute on the Sparks (~2-4 min)
+./scripts/corrdiff.sh                      # downscale one region (~30 s)
 ./scripts/collect.sh                       # pull member arrays -> ~/e2viz/data
 .venv/bin/python viz/render.py             # arrays -> frames in ~/e2viz/frames
 ./demo start                               # serve /display and /operator
 ```
+
+`corrdiff.sh` is a **separate run** from the ensemble: it takes the global
+forecast and super-resolves one region (~11x finer), producing the
+side-by-side coarse/fine panel *and* the only rainfall variable in the whole
+demo — SFNO has no precipitation output at all. Skip it and the display's
+downscaling panel is simply absent, with nothing saying why. It writes
+`corrdiff*.npy/json` straight into `~/e2viz/data`, so `render.py` picks it up
+on the next render.
 
 `./demo start` prints the two URLs. Put `/display` on the big screen and keep
 `/operator` on your laptop:
@@ -284,9 +293,17 @@ both URLs any time you lose them.
 > Skipping `collect.sh` or `render.py` is the usual reason the display comes
 > up **empty** — the server starts fine, there are just no frames to show.
 > `start-display.sh` warns when `~/e2viz/frames/manifest.json` is missing.
+> Skipping `corrdiff.sh` leaves the globes working but the downscaling panel
+> blank.
 >
 > Use `.venv/bin/python` for `render.py`, not bare `python3` — numpy and
 > pillow live in the venv.
+>
+> `IMAGE` in `cluster.conf` must match the tag actually loaded on the nodes
+> (`docker images | grep earth2`). A mismatch fails *only* the steps that
+> start a fresh container — `corrdiff.sh` reports `nothing collected` while
+> an already-running ensemble keeps working, which reads like a CorrDiff bug
+> rather than a config typo.
 
 ### Daily operation
 
