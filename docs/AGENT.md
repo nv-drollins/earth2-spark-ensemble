@@ -52,8 +52,23 @@ part properly against your existing model. Verify with `nemoclaw --version`,
 then remove the installer's throwaway sandbox:
 
 ```bash
-nemoclaw throwaway-init destroy --yes
+~/.local/bin/nemoclaw throwaway-init destroy --yes
 ```
+
+> **Why the absolute path?** The installer puts `nemoclaw` in `~/.local/bin`,
+> which only lands on `PATH` via `~/.profile` — a **login** shell. So
+> `ssh node 'nemoclaw ...'` fails with `command not found`, and so does a
+> shell that was already open when the installer ran (its `PATH` is cached;
+> `hash -r` or a fresh login fixes that one). `~/.bashrc` won't save you
+> either: Ubuntu's early-returns when non-interactive.
+>
+> Two forms that always work:
+> ```bash
+> ~/.local/bin/nemoclaw ...                 # absolute path
+> ssh node 'bash -lc "nemoclaw ..."'        # force a login shell
+> ```
+> The repo's own scripts are immune — `on_node()` in `scripts/common.sh`
+> wraps every remote command in `bash -lc` for exactly this reason.
 
 Do **not** stop your vLLM to make the installer happy — that would download a
 second ~20 GB model you do not need.
@@ -139,7 +154,8 @@ Two ways out:
 E2_VLLM_CONTAINER=nemoclaw-vllm ./agent/setup-agent.sh
 
 # B. Replace it with this repo's Nemotron container  <-- recommended
-ssh user@agent-node 'docker rm -f nemoclaw-vllm; nemoclaw throwaway-init destroy --yes'
+#    bash -lc because nemoclaw lives in ~/.local/bin (login-shell PATH only)
+ssh user@agent-node 'bash -lc "docker rm -f nemoclaw-vllm; nemoclaw throwaway-init destroy --yes"'
 ```
 
 **Prefer B for a booth demo.** `e2-vllm-policy.yaml` and the
