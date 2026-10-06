@@ -116,6 +116,72 @@ Three traps, each of which cost a restart cycle:
 3. **Verify `/v1/models` reports the id you asked for.** A container showing
    "Up" can be in a crash loop while the previous model keeps answering.
 
+### NemoClaw installs its OWN vLLM — expect a name collision
+
+The NemoClaw installer does not just install CLIs. It stands up its own
+container, **`nemoclaw-vllm`**, serving **Qwen3.6-35B-A3B-NVFP4** on port 8000.
+That is a different name *and* a different model from what this repo expects,
+and it produces a confusing half-failure:
+
+```
+OK   nemoclaw nemoclaw v0.0.124
+FAIL could not find e2-llm on the openshell-docker network
+```
+
+The node probe **passes** (something *is* serving `127.0.0.1:8000`), then the
+bridge lookup **fails** because `setup-agent.sh` looks for
+`${E2_VLLM_CONTAINER:-e2-llm}`. Nothing is broken — the names simply disagree.
+
+Two ways out:
+
+```bash
+# A. Use NemoClaw's container as-is (Qwen, its own tool-call parser)
+E2_VLLM_CONTAINER=nemoclaw-vllm ./agent/setup-agent.sh
+
+# B. Replace it with this repo's Nemotron container  <-- recommended
+ssh user@agent-node 'docker rm -f nemoclaw-vllm; nemoclaw throwaway-init destroy --yes'
+```
+
+**Prefer B for a booth demo.** `e2-vllm-policy.yaml` and the
+`--tool-call-parser qwen3_xml` / `--reasoning-parser nemotron_v3` pairing in
+`serve-model.sh` are tuned for Nemotron; NemoClaw's container runs
+`--tool-call-parser qwen3_coder`. Mixing them is a silent behaviour change in
+the agent's tool calling, not an error you will see.
+
+B also fixes a second problem: `nemoclaw-vllm` runs with `--port 8000` but
+**no `--host`**, so vLLM binds `127.0.0.1` *inside* the container. The host
+port map still works (Docker proxies it), but every bridge address refuses —
+the first sandbox-networking trap below. `serve-model.sh` passes `--host 0.0.0.0`.
+
+### Correct order (replacement path)
+
+`serve-model.sh` has no remote plumbing — it drives the **local** Docker
+daemon, so run it **on the agent node**, not from the workstation:
+
+```bash
+# 1. ON THE AGENT NODE
+ssh user@agent-node
+cd ~/earth2-spark-ensemble          # clone it there if absent
+export HF_TOKEN=hf_...              # see above; the pull is ~20 GB
+./agent/serve-model.sh
+curl -s localhost:8000/v1/models    # expect the Nemotron id
+
+# 2. BACK ON THE WORKSTATION
+./agent/setup-agent.sh                      # default e2-llm now matches
+MEMBERS=6 STEPS=20 ./scripts/ensemble.sh    # agent node skipped -> rebalanced
+```
+
+Switching models means a **fresh download** — the cache is per-repo, so the
+22 GB of Qwen weights do nothing for Nemotron. Reclaim them once you are
+settled:
+
+```bash
+rm -rf ~/.cache/huggingface/hub/models--nvidia--Qwen3.6-35B-A3B-NVFP4
+```
+
+Re-running `ensemble.sh` afterwards is what rebalances members off the agent
+node — see the README's Quick start.
+
 `ask.py` and `plan.py` now **query the endpoint** for the served model id rather
 than hardcoding it — a stale hardcoded name returns HTTP 404, which reads like
 a network fault rather than a config error.
