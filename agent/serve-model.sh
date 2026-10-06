@@ -18,8 +18,25 @@ docker rm -f vllm-server e2-llm 2>/dev/null
 sleep 5
 ss -tln | grep ':8000' || echo "port 8000 free"
 
+# Pass HF_TOKEN through when the operator has one. Unauthenticated Hub pulls
+# are rate-limited -- the Hub itself warns "Please set a HF_TOKEN to enable
+# higher rate limits and faster downloads" -- and a ~30B NVFP4 checkpoint is
+# big enough for that throttle to hurt. Also required for any gated repo.
+# Optional: without it the pull still works, just slower.
+#
+# Do NOT set HF_HUB_ENABLE_HF_TRANSFER=1 blindly. hf_transfer is NOT installed
+# in the NGC vLLM image, and the flag is a hard failure when the package is
+# absent ("Fast download using 'hf_transfer' is enabled but 'hf_transfer' is
+# not available in your environment"), so it would break the pull it was
+# meant to accelerate. Opt in only if your image actually ships it.
+HF_ENV=()
+[[ -n "${HF_TOKEN:-}" ]] && HF_ENV+=(-e "HF_TOKEN=$HF_TOKEN")
+[[ -n "${HF_HUB_ENABLE_HF_TRANSFER:-}" ]] \
+  && HF_ENV+=(-e "HF_HUB_ENABLE_HF_TRANSFER=$HF_HUB_ENABLE_HF_TRANSFER")
+
 docker run -d --name e2-llm --gpus all --ipc=host --restart unless-stopped \
   -p 0.0.0.0:8000:8000 \
+  "${HF_ENV[@]}" \
   -v "$HOME/.cache/huggingface:/root/.cache/huggingface" \
   vllm/vllm-openai:latest \
   nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4 \

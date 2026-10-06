@@ -77,6 +77,32 @@ it needs no GPU at all. A laptop is sufficient for the display role.
 ./agent/serve-model.sh          # serves Nemotron 3.5 Lightning NVFP4
 ```
 
+**Set `HF_TOKEN` before the first pull.** Hugging Face throttles anonymous
+downloads, and the Hub says so when the download starts:
+
+```
+You are sending unauthenticated request to the HF Hub.
+Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+```
+
+A ~30B NVFP4 checkpoint is large enough for that throttle to cost real time,
+and the download reports no visible progress while it happens (HF progress
+bars need a TTY, so `docker logs` shows nothing until a chunk lands — it
+looks hung when it is working). The token is passed through automatically
+when the variable is set:
+
+```bash
+export HF_TOKEN=hf_...            # read-only token is enough
+./agent/serve-model.sh
+```
+
+Watch real progress with `du -sh ~/.cache/huggingface` rather than the logs.
+
+> `HF_HUB_ENABLE_HF_TRANSFER=1` parallelises range requests, but **the NGC
+> vLLM image does not ship `hf_transfer`**, and the flag is a *hard failure*
+> when the package is missing. It is only forwarded if you set it explicitly
+> — opt in only on an image that has it.
+
 Three traps, each of which cost a restart cycle:
 
 1. **A user systemd unit can own port 8000.** `vllm-server.service` recreates
