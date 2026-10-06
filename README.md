@@ -125,6 +125,10 @@ and splits members across the nodes that can hold them. This is reported by
 `./demo status`, never silent. Stop the LLM and that node rejoins the pool
 automatically.
 
+Because the check runs at launch, **start the agent before the ensemble** — or
+just re-run `ensemble.sh` afterwards to rebalance. See
+[If you are also running the agent](#if-you-are-also-running-the-agent-set-it-up-first).
+
 ## Scaling: adding or removing a Spark
 
 **Yes — a new Spark with key-based SSH from the workstation is the whole job.**
@@ -194,6 +198,33 @@ MEMBERS=6 STEPS=20 ./scripts/ensemble.sh
 ```
 
 All scripts are idempotent -- re-running skips work that is already done.
+
+### If you are also running the agent, set it up FIRST
+
+`ensemble.sh` decides where members go by probing **free memory at launch**,
+skipping any node with less than `E2_MIN_FREE_GB` (default 24 GB) because one
+SFNO member needs 16 GB. The agent's ~30B vLLM leaves its host with ~15 GB
+free, so that node drops out and the members rebalance onto the rest.
+
+Order matters:
+
+```bash
+E2_AGENT_NODE=user@spark-3 ./agent/setup-agent.sh   # loads vLLM, ~4-6 min
+MEMBERS=6 STEPS=20 ./scripts/ensemble.sh            # now 3 + 3 on two nodes
+```
+
+Run the ensemble first and all three nodes are still idle, so you get 2+2+2 --
+then the agent node is hosting both an LLM and two members. **Just re-run
+`ensemble.sh` after the LLM is up**; it re-probes every time, clears stale
+member output on every node (including skipped ones), and rebalances. Nothing
+to move by hand.
+
+`./demo status` names the skipped node and the free-memory reason, so a node
+contributing zero members reads as intended rather than broken.
+
+> Do **not** set `E2_MIN_FREE_GB=0` to force a member onto the agent node. It
+> OOMs with `CUDA error: out of memory`, and since members run in parallel that
+> failure is easy to miss among the successes.
 
 ### Going to a venue with no internet
 
