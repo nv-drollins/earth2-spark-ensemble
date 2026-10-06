@@ -2,9 +2,19 @@
 # Copy to cluster.conf and edit. cluster.conf is gitignored -- never commit
 # site-specific hostnames or IPs.
 
-# Space-separated SSH targets, one per Spark. user@host or an ssh_config alias.
+# Space-separated SSH targets, one per Spark.
 # The FIRST entry is the build node (where the image is built and exported).
-NODES="user@spark-1 user@spark-2 user@spark-3"
+#
+# Prefer NAMES over IPs -- an ssh_config alias, or the Spark's own mDNS name
+# (`hostname`.local, e.g. spark-6b64.local, which works out of the box on the
+# same LAN). IPs hardcode a DHCP lease into your config: they go stale on a
+# reboot or a new venue, and every script then fails with a confusing SSH
+# error. Names survive that.
+#
+# Do NOT list the workstation here -- this is the compute roster. Listing it
+# schedules ensemble members onto the machine that is supposed to be driving
+# the display.
+NODES="user@spark-1.local user@spark-2.local user@spark-3.local"
 
 # Image name:tag produced by scripts/build.sh
 IMAGE="earth2-spark:1.0"

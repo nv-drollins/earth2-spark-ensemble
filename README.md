@@ -209,6 +209,13 @@ $EDITOR cluster.conf          # NODES = your Sparks. First entry = build node.
 ssh-copy-id nvidia@<spark-1>  # key-based SSH to EVERY node, repeat per node
 ```
 
+> **Use names, not IPs, in `NODES`.** An ssh_config alias or the Spark's own
+> mDNS name (`hostname`.local — e.g. `spark-6b64.local`) works on the same LAN
+> with no setup. Hardcoding a DHCP lease means every script breaks on the next
+> reboot or at a new venue. And **do not list the workstation** — `NODES` is
+> the compute roster, so adding it schedules forecast members onto the machine
+> that is meant to be driving the display.
+
 That is the complete workstation footprint: a git clone, one venv, an SSH key.
 Nothing else is installed on it, ever — see
 [docs/WORKSTATION.md](docs/WORKSTATION.md) to rebuild one from scratch.
@@ -248,7 +255,15 @@ MEMBERS=6 STEPS=20 ./scripts/ensemble.sh   # compute on the Sparks (~2-4 min)
 ```
 
 `./demo start` prints the two URLs. Put `/display` on the big screen and keep
-`/operator` on your laptop.
+`/operator` on your laptop:
+
+| page | what it is | URL |
+|---|---|---|
+| `/display` | the booth screen — globes, spread map, scrub control | `http://<workstation>:8500/display` |
+| `/operator` | your control panel — ask the agent, re-run the ensemble | `http://<workstation>:8500/operator` |
+
+Port `8500` by default; override with `E2_PORT`. `./demo status` reprints
+both URLs any time you lose them.
 
 > Skipping `collect.sh` or `render.py` is the usual reason the display comes
 > up **empty** — the server starts fine, there are just no frames to show.
