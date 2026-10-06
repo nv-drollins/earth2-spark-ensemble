@@ -30,7 +30,7 @@ but the GPU sits idle — unless you deliberately move the agent's LLM onto it
 ## Requirements
 
 - Linux or macOS (bash, ssh, scp, python3.9+)
-- **Key-based SSH to every Spark** — `ssh-copy-id nvidia@<spark>`
+- **Key-based SSH to every Spark** — `ssh-copy-id <user>@<spark>`
 - Python packages from `viz/requirements.txt`
 - Network reachability to the Sparks and to the booth display screen
 
@@ -50,7 +50,7 @@ python3 -m venv .venv                      # REQUIRED on Ubuntu 24.04+ (PEP 668)
 cp cluster.conf.example cluster.conf
 $EDITOR cluster.conf        # set NODES to your SSH targets
 
-ssh-copy-id nvidia@<spark-1>   # repeat for each node
+ssh-copy-id <user>@<spark-1>   # repeat for each node
 ./demo check                   # verifies SSH, GPUs, disk, image, agent
 ```
 
@@ -112,7 +112,7 @@ git clone https://github.com/nv-drollins/earth2-spark-ensemble.git
 cd earth2-spark-ensemble
 python3 -m venv .venv && .venv/bin/pip install -r viz/requirements.txt
 cp cluster.conf.example cluster.conf && $EDITOR cluster.conf
-ssh-copy-id nvidia@<each-spark>
+ssh-copy-id <user>@<each-spark>
 ./demo check
 ```
 
@@ -209,9 +209,9 @@ workstation already has this; the Sparks do not have keys to each other.
 ```bash
 # ON the Spark you have chosen as controller
 ssh-keygen -t ed25519 -N "" -f ~/.ssh/id_ed25519      # if it has no key yet
-ssh-copy-id nvidia@<spark-1>     # yes, including itself
-ssh-copy-id nvidia@<spark-2>
-ssh-copy-id nvidia@<spark-3>
+ssh-copy-id <user>@<spark-1>     # yes, including itself
+ssh-copy-id <user>@<spark-2>
+ssh-copy-id <user>@<spark-3>
 
 git clone https://github.com/nv-drollins/earth2-spark-ensemble.git
 cd earth2-spark-ensemble
@@ -245,7 +245,7 @@ Spark-hosted layout when hardware is genuinely constrained, not by default.
 
 | symptom | cause | fix |
 |---|---|---|
-| `./demo check` fails on SSH | no key-based auth | `ssh-copy-id nvidia@<node>` |
+| `./demo check` fails on SSH | no key-based auth | `ssh-copy-id <user>@<node>` |
 | `Missing Python packages` | deps not installed locally; on Ubuntu 24.04+ plain `pip` refuses (PEP 668 `externally-managed-environment`) | `python3 -m venv .venv && .venv/bin/pip install -r viz/requirements.txt` — `start-display.sh` finds `.venv` automatically |
 | Display loads but globes are blank | no frames rendered | `./scripts/collect.sh && python3 viz/render.py` |
 | Changes to HTML/CSS do nothing | browser cache | hard-refresh (Ctrl+Shift+R); routes already send `no-store` |

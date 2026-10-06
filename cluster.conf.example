@@ -5,16 +5,21 @@
 # Space-separated SSH targets, one per Spark.
 # The FIRST entry is the build node (where the image is built and exported).
 #
-# Prefer NAMES over IPs -- an ssh_config alias, or the Spark's own mDNS name
-# (`hostname`.local, e.g. spark-6b64.local, which works out of the box on the
-# same LAN). IPs hardcode a DHCP lease into your config: they go stale on a
-# reboot or a new venue, and every script then fails with a confusing SSH
-# error. Names survive that.
+# Use whatever addressing is stable AT YOUR SITE. In rough order of
+# preference:
+#   1. ssh_config aliases  -- most portable. Put the site detail in
+#      ~/.ssh/config (Host spark-1 / HostName <addr> / User <user>) and this
+#      file never changes between venues.
+#   2. DNS or mDNS names   -- each Spark answers to its own `hostname`.local
+#      on the same LAN, no setup required. Check with: ping <hostname>.local
+#   3. IP addresses        -- last resort. An IP is a DHCP lease frozen into
+#      config: it goes stale on a restart or at a new venue, and every script
+#      then fails with a confusing SSH error.
 #
-# Do NOT list the workstation here -- this is the compute roster. Listing it
-# schedules ensemble members onto the machine that is supposed to be driving
-# the display.
-NODES="user@spark-1.local user@spark-2.local user@spark-3.local"
+# Do NOT list the workstation here -- this is the COMPUTE roster. Listing it
+# schedules ensemble members onto the machine that is meant to be driving the
+# display.
+NODES="user@spark-1 user@spark-2 user@spark-3"
 
 # Image name:tag produced by scripts/build.sh
 IMAGE="earth2-spark:1.0"

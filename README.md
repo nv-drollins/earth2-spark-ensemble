@@ -136,7 +136,7 @@ Nothing in the scripts hardcodes a node count or an address; the roster lives
 in one line of `cluster.conf`.
 
 ```bash
-ssh-copy-id nvidia@<new-spark>              # 1. key-based SSH
+ssh-copy-id <user>@<new-spark>              # 1. key-based SSH
 $EDITOR cluster.conf                        # 2. append to NODES="..."
 ./scripts/preflight.sh                       # 3. verify it is ready
 ./scripts/distribute.sh                      # 4. copy + load the image (~4 min)
@@ -206,15 +206,31 @@ python3 -m venv .venv
 cp cluster.conf.example cluster.conf
 $EDITOR cluster.conf          # NODES = your Sparks. First entry = build node.
 
-ssh-copy-id nvidia@<spark-1>  # key-based SSH to EVERY node, repeat per node
+ssh-copy-id <user>@<spark-1>  # key-based SSH to EVERY node, repeat per node
 ```
 
-> **Use names, not IPs, in `NODES`.** An ssh_config alias or the Spark's own
-> mDNS name (`hostname`.local — e.g. `spark-6b64.local`) works on the same LAN
-> with no setup. Hardcoding a DHCP lease means every script breaks on the next
-> reboot or at a new venue. And **do not list the workstation** — `NODES` is
+> **`NODES` is site-specific — keep it out of the project.** `cluster.conf` is
+> gitignored for this reason. Prefer an ssh_config alias (site detail lives in
+> `~/.ssh/config`, so `cluster.conf` never changes between venues), or a
+> DNS/mDNS name. An IP is a DHCP lease frozen into config — it goes stale on a
+> restart or at a new venue. And **do not list the workstation** — `NODES` is
 > the compute roster, so adding it schedules forecast members onto the machine
 > that is meant to be driving the display.
+>
+> `<user>` is whatever account exists on your Sparks (`nvidia` on stock DGX
+> OS); `<spark-N>` is however you reach them at this venue. The most portable
+> setup puts both in `~/.ssh/config` and keeps `cluster.conf` generic:
+>
+> ```
+> Host spark-1 spark-2 spark-3
+>     User <user>
+>     IdentityFile ~/.ssh/id_ed25519
+> Host spark-1
+>     HostName <whatever this venue gives you>
+> ```
+> ```bash
+> NODES="spark-1 spark-2 spark-3"      # same line at every show
+> ```
 
 That is the complete workstation footprint: a git clone, one venv, an SSH key.
 Nothing else is installed on it, ever — see
@@ -233,7 +249,7 @@ Nothing else is installed on it, ever — see
 ### 3. Agent (optional — but if you want it, do it BEFORE the ensemble)
 
 ```bash
-E2_AGENT_NODE=nvidia@<spark-3> ./agent/setup-agent.sh   # ~4-6 min to load
+E2_AGENT_NODE=<user>@<spark-3> ./agent/setup-agent.sh   # ~4-6 min to load
 ```
 
 Skip this and you simply get no agent panel. Why the order matters is
