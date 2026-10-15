@@ -53,6 +53,14 @@ for node in "${RUN_NODES[@]}"; do
   on_node "$node" "mkdir -p '$OUTDIR' '$RUNDIR'"
   scp -o BatchMode=yes -q "$REPO_ROOT/ensemble/run_member.py" "$node:$RUNDIR/run_member.py"
   echo "  $node"
+  # Prefer an IC staged by scripts/stage-offline.sh. It lives in $CACHE_DIR
+  # (which travels on the USB stick) rather than $OUTDIR (which this script
+  # wipes), so an offline venue needs no NOAA fetch at all. Requires DATE to
+  # match what was staged -- the default here is "2 days ago", which drifts.
+  if on_node "$node" "test -s '$CACHE_DIR/ic/ic_${DATE}.nc'"; then
+    on_node "$node" "cp -f '$CACHE_DIR/ic/ic_${DATE}.nc' '$OUTDIR/ic_${DATE}.nc'" \
+      && { ok "using staged IC for $DATE (offline)"; continue; }
+  fi
   # Materialise the FULL initial condition to a file every member then reads.
   # Warming the cache is not enough: independent GFS() calls can still resolve
   # to different analyses. A shared file makes "identical inputs" structural.

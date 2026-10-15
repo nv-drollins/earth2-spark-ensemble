@@ -342,9 +342,35 @@ contributing zero members reads as intended rather than broken.
 
 ### Going to a venue with no internet
 
-`build.sh` + `fetch-models.sh` are the only steps needing connectivity. Run
-both at the office, then carry `$BUNDLE_DIR` (tarball) and `$CACHE_DIR`
-(weights) on a USB stick. On site: `distribute.sh` and `verify.sh` only.
+`build.sh` + `stage-offline.sh` are the only steps needing connectivity. Run
+both at the office:
+
+```bash
+./scripts/build.sh
+./scripts/distribute.sh
+./scripts/stage-offline.sh --with-agent --date 2026-10-13
+```
+
+`stage-offline.sh` is the superset of `fetch-models.sh`. It stages **four**
+things, because three of them are downloaded at *run* time and would otherwise
+fail on the floor:
+
+| artifact | where it lands | why it is easy to miss |
+|---|---|---|
+| SFNO weights, 6.9 GB | `$CACHE_DIR` | the only one `fetch-models.sh` handles |
+| CorrDiff weights | `$CACHE_DIR/earth2studio/corrdiff_taiwan` | fetched when `corrdiff.sh` runs; missing ⇒ rainfall panel silently absent |
+| GFS initial conditions | `$CACHE_DIR/ic/ic_<DATE>.nc` | `DATE` defaults to *two days ago*, so it changes daily |
+| agent LLM, ~30 GB | `~/.cache/huggingface` on the agent node | a different directory from `$CACHE_DIR` entirely |
+
+Carry `$BUNDLE_DIR`, `$CACHE_DIR` and (for the agent) `~/.cache/huggingface`.
+Each staged directory gets a `MANIFEST.sha256`; verify the copy with
+`./scripts/stage-offline.sh --verify --date <staged-date>`, which downloads
+nothing.
+
+On site: `distribute.sh`, `--verify`, `verify.sh`. Then pin the staged date on
+every run — `DATE=<staged-date> ./scripts/ensemble.sh` and the same for
+`corrdiff.sh` — or they will try to reach NOAA for a date you never staged.
+Set `HF_TOKEN` before staging the LLM; the Hub throttles anonymous pulls.
 
 ---
 
@@ -377,6 +403,7 @@ scripts/
   build.sh               build once on the build node, export tarball
   distribute.sh          copy + load the image onto every node
   fetch-models.sh        pre-stage SFNO weights into the cache
+  stage-offline.sh       stage EVERYTHING (SFNO + CorrDiff + ICs + LLM) + manifests
   verify.sh              runtime SFNO + CUDA verification
   ensemble.sh            fan N members across the cluster
 ensemble/run_member.py   single ensemble member (runs inside the container)

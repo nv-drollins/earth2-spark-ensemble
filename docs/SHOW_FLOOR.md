@@ -30,26 +30,57 @@ Only the build node needs internet, and only once. **Do this at the office.**
 cp cluster.conf.example cluster.conf && $EDITOR cluster.conf   # SSH targets
 ./scripts/preflight.sh      # check every node BEFORE pulling 48 GB
 ./scripts/build.sh          # build once -> one 14.1 GB tarball
-./scripts/fetch-models.sh   # pre-stage the 6.9 GB SFNO weights
+./scripts/distribute.sh     # load the image onto every node
+./scripts/stage-offline.sh --with-agent   # EVERYTHING else the demo downloads
 ```
 
-Then carry two directories on a USB stick:
+`stage-offline.sh` replaces `fetch-models.sh` for show prep: it stages SFNO
+**and** the three artifacts `fetch-models.sh` does not — CorrDiff weights, the
+GFS initial conditions, and the agent's LLM — then writes a `MANIFEST.sha256`
+in each directory so you can prove the USB copy arrived intact. Re-running it
+is cheap; it skips whatever is already staged.
+
+Then carry these on a USB stick:
 
 | directory | what | size |
 |---|---|---|
 | `$BUNDLE_DIR` (`~/e2dist`) | the image tarball | **14.1 GB** |
-| `$CACHE_DIR` (`~/e2cache`) | SFNO model weights | **6.9 GB** |
+| `$CACHE_DIR` (`~/e2cache`) | SFNO weights, CorrDiff weights, pinned initial conditions | **~8 GB** |
+| `~/.cache/huggingface` *(agent node only)* | the agent's ~30B LLM | **~30 GB** |
+
+The last two rows are the ones that used to bite. **CorrDiff weights** are
+fetched at *run* time by `run_corrdiff.py`, so without them the rainfall panel
+is simply absent — `render.py` omits it with no error. **The LLM** lives in
+`~/.cache/huggingface` on the agent node, not in `$CACHE_DIR`, so it travels in
+its own directory. Export `HF_TOKEN` before staging: the Hub throttles
+anonymous downloads and a 30 GB NVFP4 checkpoint feels it.
 
 On site, with no internet:
 
 ```bash
-./scripts/distribute.sh   # copy + load the image onto every node (~4 min/node)
-./scripts/verify.sh       # runtime SFNO + CUDA check on every node
-./demo check              # full readiness
+./scripts/distribute.sh                    # copy + load the image (~4 min/node)
+./scripts/stage-offline.sh --verify --date <staged-date>   # checksums, no downloads
+./scripts/verify.sh                        # runtime SFNO + CUDA check
+./demo check                               # full readiness
 ```
 
+### Pin the date, or the ensemble phones home
+
+`ensemble.sh` and `corrdiff.sh` default `DATE` to **two days ago**, which is a
+different date by the time you reach the venue. Nothing is staged for it, so
+they fall back to a live NOAA fetch and fail. Use the date you staged, on both:
+
+```bash
+DATE=2026-10-13 MEMBERS=6 STEPS=20 ./scripts/ensemble.sh
+DATE=2026-10-13 ./scripts/corrdiff.sh
+```
+
+When a staged IC is present, `ensemble.sh` says `using staged IC for <date>
+(offline)` and skips the download entirely.
+
 Budget **~80 GB free disk per node**: 14 GB tarball + 49 GB loaded image +
-7 GB weights + headroom.
+8 GB weights + headroom. The agent node needs **~30 GB more** for the LLM.
+
 
 ---
 
