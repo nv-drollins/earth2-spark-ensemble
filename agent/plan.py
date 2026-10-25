@@ -47,7 +47,16 @@ URL = f"http://{VLLM_IP}:{VLLM_PORT}/v1/chat/completions"
 LIMITS = {
     "members": (1, 12),      # 12 x 16 GB still fits 3 x 121 GB with headroom
     "steps":   (4, 40),      # 40 steps = 10 days, past which SFNO skill decays
-    "noise":   (0.005, 0.05),  # >0.05 pushes members non-physical (see PITFALLS #11)
+    # MEASURED on GB10, 6 members x 8 steps, same IC (2026-10-23):
+    #   0.02 -> spread 3.19 K @48h, worst member 209..317 K   physical
+    #   0.03 -> spread 4.50 K @48h, worst member 204..323 K   physical
+    #   0.05 -> spread 7.82 K @48h, worst member 168..347 K   NOT physical
+    # 0.05 no longer DIVERGES (the per-variable scaling in run_member.py fixed
+    # that), so it exits 0 and renders fine -- but -105 C / +73 C on a globe in
+    # front of a domain expert is a credibility failure, not a crash. 0.03 is
+    # the largest amplitude that keeps every member inside Earth-like bounds
+    # while still showing real forecast divergence.
+    "noise":   (0.005, 0.03),
 }
 DEFAULTS = {"members": 6, "steps": 20, "noise": 0.02, "region": "global",
             "variable": "t2m", "downscale": False}
@@ -75,7 +84,7 @@ Schema:
 {{
   "members":   integer 1-12,      how many ensemble forecasts to run
   "steps":     integer 4-40,      number of 6-hour steps (4 steps = 1 day)
-  "noise":     number 0.005-0.05, how much to perturb the starting conditions
+  "noise":     number 0.005-0.03, how much to perturb the starting conditions
   "region":    one of {sorted(REGIONS)},
   "variable":  one of ["t2m", "msl", "z500", "u10m", "v10m", "mrr"],
   "downscale": true or false,     true only if they ask for fine/local detail
@@ -85,7 +94,7 @@ Schema:
 Guidance:
 - "how uncertain / how much do we trust it" -> more members (8-12).
 - "next week / 7 days" -> steps 28. "tomorrow" -> steps 4. "two days" -> 8.
-- "what if conditions were slightly different" -> raise noise toward 0.05.
+- "what if conditions were slightly different" -> raise noise toward 0.03.
 - "zoom in / rain bands / local detail / storm structure" -> downscale true
   and region taiwan (the only domain the downscaling model was trained on).
 - Storms/hurricanes -> pick the matching ocean region, more members.

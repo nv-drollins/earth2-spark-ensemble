@@ -10,10 +10,15 @@ source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 MEMBERS="${MEMBERS:-6}"
 DATE="${DATE:-$(date -u -d '2 days ago' +%Y-%m-%d)}"
 STEPS="${STEPS:-20}"
+# Perturbation amplitude. run_member.py defaults to 0.02 on its own, but the
+# value MUST be forwarded: agent/run-plan.sh sets NOISE= from the model's plan
+# and this script used to drop it silently, so every planned perturbation ran
+# at the default and the displayed plan did not match what was computed.
+NOISE="${NOISE:-0.02}"
 OUTDIR="${OUTDIR:-$HOME/e2out}"
 RUNDIR="${RUNDIR:-$HOME/e2run}"
 
-hdr "Ensemble: $MEMBERS members, init $DATE, $STEPS x 6h steps"
+hdr "Ensemble: $MEMBERS members, init $DATE, $STEPS x 6h steps, noise $NOISE"
 echo "Nodes: ${NODE_ARR[*]}"
 
 # Skip nodes with too little free memory to hold a 16 GB SFNO member. The
@@ -123,7 +128,7 @@ for ((m=0; m<MEMBERS; m++)); do
       -v '$R_CACHE':/root/.cache -v '$R_OUT':/out \
       -v '$R_RUN/run_member.py':/run_member.py \
       '$IMAGE' python /run_member.py \
-      --member $m --date '$DATE' --steps $STEPS --outdir /out \
+      --member $m --date '$DATE' --steps $STEPS --noise $NOISE --outdir /out \
       --ic-file /out/ic_${DATE}.nc" \
       > "/tmp/e2_member_${m}.log" 2>&1 &
   pids+=($!)

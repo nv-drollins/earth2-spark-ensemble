@@ -35,6 +35,20 @@ on_node() {
   ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new "$target" "bash -lc $(printf '%q' "$*")"
 }
 
+# openshell COLOURISES its output even through a pipe, so `sandbox list` yields
+# bytes like \e[32mReady\e[39m -- 15 bytes, not 5. A bare [[ "$phase" == Ready ]]
+# therefore fails against a sandbox that IS Ready, and stripping whitespace does
+# not help because the padding is escape sequences, not spaces. Strip SGR codes
+# (and any CR) before comparing anything openshell printed.
+strip_ansi() { sed -e 's/\x1b\[[0-9;]*[a-zA-Z]//g' -e 's/\r//g'; }
+
+# Phase of a sandbox on a node, de-colourised. Empty = no such sandbox.
+sandbox_phase() {
+  local target="$1" name="$2"
+  on_node "$target" "openshell sandbox list 2>/dev/null" 2>/dev/null \
+    | strip_ansi | awk -v n="$name" '$1==n {print $NF}' | tr -d '[:space:]'
+}
+
 # Remote paths MUST be expanded on the NODE, never on the control machine.
 # $HOME on a laptop (/home/drollins) is NOT $HOME on a Spark (/home/nvidia),
 # and `docker -v` SILENTLY CREATES a missing bind-mount source as a directory

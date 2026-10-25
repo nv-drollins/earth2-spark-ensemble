@@ -44,7 +44,25 @@ PLAN=$(on_node "$NODE" "openshell sandbox exec --name '$SBX' --no-tty --timeout 
   python3 -c 'import base64,sys,subprocess,os; os.environ[\"E2_VLLM_IP\"]=\"$VIP\"; q=base64.b64decode(sys.argv[1]).decode(); sys.exit(subprocess.run([\"python3\",\"/tmp/plan.py\",q],env=os.environ).returncode)' '$QB64'" 2>/dev/null)
 
 if ! python3 -c "import json,sys; json.loads(sys.stdin.read())" <<< "$PLAN" 2>/dev/null; then
-  err "planner did not return JSON:"; sed 's/^/    /' <<< "$(head -c 400 <<< "$PLAN")"; exit 1
+  # An EMPTY $PLAN almost always means the sandbox exec failed, not that the
+  # model misbehaved -- most often because no sandbox exists on this node.
+  # `./demo start` only HEALS a sandbox stuck in Error; it never creates one
+  # that was never onboarded. Say so instead of blaming the planner, which
+  # sends the operator to debug the LLM while the LLM is perfectly fine.
+  if [[ -z "${PLAN//[[:space:]]/}" ]]; then
+    err "planner returned nothing -- the sandbox call failed."
+    PHASE=$(sandbox_phase "$NODE" "$SBX")
+    if [[ -z "$PHASE" ]]; then
+      echo "       No sandbox '$SBX' on $NODE. Create it:"
+      echo "         E2_AGENT_NODE=$NODE ./agent/setup-agent.sh"
+    else
+      echo "       Sandbox '$SBX' phase: $PHASE (needs Ready)."
+      echo "       Re-onboard:  E2_AGENT_NODE=$NODE ./agent/setup-agent.sh"
+    fi
+  else
+    err "planner did not return JSON:"; sed 's/^/    /' <<< "$(head -c 400 <<< "$PLAN")"
+  fi
+  exit 1
 fi
 
 read -r MEMBERS STEPS NOISE REGION VARIABLE DOWNSCALE EST INTENT <<< "$(

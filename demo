@@ -70,9 +70,11 @@ print(f"         corrdiff: {\"yes\" if \"corrdiff\" in m else \"no\"}")' 2>/dev/
     model=$(on_node "$an" "curl -s --max-time 5 http://127.0.0.1:8000/v1/models" 2>/dev/null \
             | python3 -c 'import json,sys; print(json.load(sys.stdin)["data"][0]["id"])' 2>/dev/null)
     [[ -n "$model" ]] && ok "$an  serving $model" || err "$an  LLM not responding  (./agent/serve-model.sh on that node)"
-    on_node "$an" "openshell sandbox list 2>/dev/null | grep -q '^$SBX .*Ready'" 2>/dev/null \
-      && ok "$an  sandbox '$SBX' Ready" \
-      || warn "$an  sandbox '$SBX' not Ready  (./agent/setup-agent.sh)"
+    if [[ "$(sandbox_phase "$an" "$SBX")" == "Ready" ]]; then
+      ok "$an  sandbox '$SBX' Ready"
+    else
+      warn "$an  sandbox '$SBX' not Ready  (./agent/setup-agent.sh)"
+    fi
   fi
 }
 
@@ -99,7 +101,7 @@ cmd_start() {
   #    that a one-line fix exists.
   if [[ -n "$an" ]]; then
     local phase
-    phase=$(on_node "$an" "openshell sandbox list 2>/dev/null | awk '/^$SBX /{print \$NF}'" 2>/dev/null | tr -d '\r')
+    phase=$(sandbox_phase "$an" "$SBX")
     if [[ "$phase" == "Error" ]]; then
       warn "sandbox '$SBX' is in Error (normal after a reboot) -- recreating"
       on_node "$an" "nemoclaw '$SBX' destroy --yes" >/dev/null 2>&1
@@ -142,6 +144,26 @@ cmd_check() {
   n=$(ls "$HOME/e2viz/frames"/manifest.json 2>/dev/null | wc -l)
   [[ "$n" -eq 1 ]] && ok "rendered frames present" \
                    || warn "no rendered frames -- run ./scripts/ensemble.sh then viz/render.py"
+
+  # The agent panel needs BOTH a served model and a Ready sandbox. Checking
+  # only the model passes while Plan/Plan&Run are completely non-functional --
+  # which is exactly how a broken agent reached a booth: `./demo start` starts
+  # the LLM but never ONBOARDS a sandbox that does not exist yet.
+  hdr "Agent readiness"
+  local an; an=$(_agent_node)
+  if [[ -z "$an" ]]; then
+    warn "no node has nemoclaw -- Ask/Plan disabled (forecast demo still works)"
+  else
+    local phase
+    phase=$(sandbox_phase "$an" "$SBX")
+    case "$phase" in
+      Ready) ok "$an  sandbox '$SBX' Ready -- Ask and Plan will work" ;;
+      "")    err "$an  NO sandbox '$SBX' -- Plan will fail with 'planner did not return JSON'"
+             echo "       Fix:  E2_AGENT_NODE=$an ./agent/setup-agent.sh" ;;
+      *)     err "$an  sandbox '$SBX' phase: $phase (needs Ready)"
+             echo "       Fix:  E2_AGENT_NODE=$an ./agent/setup-agent.sh" ;;
+    esac
+  fi
   cmd_status
 }
 
