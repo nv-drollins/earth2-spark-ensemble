@@ -13,12 +13,13 @@ rm -f "$LOCAL"/member_* 2>/dev/null
 
 for node in "${NODE_ARR[@]}"; do
   hdr "$node"
+  R_OUT=$(remote_path "$node" "$OUTDIR") || { err "path resolve failed"; continue; }
   # Container runs as root, so member files are root-owned on the host.
   # Hand them back before copying, when we can do so without a password.
   if on_node "$node" 'sudo -n true' 2>/dev/null; then
-    on_node "$node" "sudo chown -R \"\$(id -u):\$(id -g)\" '$OUTDIR' 2>/dev/null" || true
+    on_node "$node" "sudo chown -R \"\$(id -u):\$(id -g)\" '$R_OUT' 2>/dev/null" || true
   fi
-  if scp -o BatchMode=yes -q "$node:$OUTDIR/member_*" "$LOCAL/" 2>/dev/null; then
+  if scp -o BatchMode=yes -q "$node:$R_OUT/member_*" "$LOCAL/" 2>/dev/null; then
     ok "collected"
   else
     warn "nothing to collect (has the ensemble run?)"

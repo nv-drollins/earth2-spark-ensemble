@@ -61,12 +61,17 @@ TARBALL="$BUNDLE_DIR/$(echo "$IMAGE" | tr ':/' '__').tar.zst"
 # ---------------------------------------------------------------------------
 manifest_for() {
   # $1 = node, $2 = root dir, $3 = manifest path, rest = find expressions
+  # Returns non-zero if the manifest was not actually written. Reporting "OK"
+  # for a manifest that failed to write is worse than no manifest at all: the
+  # whole point is to prove the USB copy is intact, and --verify would later
+  # fail with a confusing "no manifest" on a bundle that staged fine.
   local node="$1" root="$2" mf="$3"; shift 3
-  on_node "$node" "cd '$root' 2>/dev/null || exit 0
+  on_node "$node" "cd '$root' 2>/dev/null || exit 1
     find . -type f \\( $* \\) -size +1M -print0 2>/dev/null \\
-      | sort -z | xargs -0 -r sha256sum > '$mf' 2>/dev/null
+      | sort -z | xargs -0 -r sha256sum > '$mf' || exit 1
     printf 'files=%s bytes=%s\n' \\
-      \"\$(find . -type f | wc -l)\" \"\$(du -sb . | cut -f1)\" >> '$mf'"
+      \"\$(find . -type f 2>/dev/null | wc -l)\" \"\$(du -sb . 2>/dev/null | cut -f1)\" >> '$mf' || exit 1
+    test -s '$mf'"
 }
 
 verify_manifest() {
@@ -94,9 +99,11 @@ if [[ "$VERIFY_ONLY" -eq 1 ]]; then
   FAIL=0
   for node in "${NODE_ARR[@]}"; do
     hdr "$node"
-    verify_manifest "$node" "$BUNDLE_DIR" "$BUNDLE_DIR/MANIFEST.sha256" || FAIL=1
-    verify_manifest "$node" "$CACHE_DIR"  "$CACHE_DIR/MANIFEST.sha256"  || FAIL=1
-    if on_node "$node" "test -s '$CACHE_DIR/ic/ic_${STAGE_DATE}.nc'"; then
+    R_CACHE=$(remote_path "$node" "$CACHE_DIR")   || { FAIL=1; continue; }
+    R_BUNDLE=$(remote_path "$node" "$BUNDLE_DIR") || { FAIL=1; continue; }
+    verify_manifest "$node" "$R_BUNDLE" "$R_BUNDLE/MANIFEST.sha256" || FAIL=1
+    verify_manifest "$node" "$R_CACHE"  "$R_CACHE/MANIFEST.sha256"  || FAIL=1
+    if on_node "$node" "test -s '$R_CACHE/ic/ic_${STAGE_DATE}.nc'"; then
       ok "initial conditions for $STAGE_DATE present"
     else
       err "no staged IC for $STAGE_DATE -- ensemble.sh will try to fetch it from NOAA"
@@ -117,20 +124,35 @@ for node in "${NODE_ARR[@]}"; do
   hdr "$node"
   DP=$(docker_prefix_for "$node")
   [[ "$DP" == "NEEDS_PASSWORD" ]] && { err "docker not usable -- run scripts/preflight.sh"; FAIL=1; continue; }
+  R_CACHE=$(remote_path "$node" "$CACHE_DIR") || { err "path resolve failed on $node"; FAIL=1; continue; }
 
   if ! on_node "$node" "${DP}docker image inspect '$IMAGE' >/dev/null 2>&1"; then
     err "$IMAGE missing -- run scripts/build.sh then scripts/distribute.sh first"
     FAIL=1; continue
   fi
-  on_node "$node" "mkdir -p '$CACHE_DIR/ic'"
+  # $CACHE_DIR is bind-mounted into a container that runs as ROOT, so after the
+  # first fetch everything in it is root-owned on the host and a plain
+  # `mkdir`/redirect fails with Permission denied. Hand it back before doing
+  # anything else; fall back to creating ic/ inside the container when there is
+  # no passwordless sudo, so an unprivileged node still works.
+  if on_node "$node" "sudo -n true" 2>/dev/null; then
+    on_node "$node" "sudo mkdir -p '$R_CACHE/ic' && sudo chown -R \"\$(id -u):\$(id -g)\" '$R_CACHE'" \
+      || warn "could not reclaim ownership of $CACHE_DIR"
+  elif ! on_node "$node" "mkdir -p '$R_CACHE/ic' 2>/dev/null"; then
+    # No sudo: let the (root) container create it on the shared mount instead.
+    on_node "$node" "${DP}docker run --rm -v '$R_CACHE':/root/.cache '$IMAGE' \
+        mkdir -p /root/.cache/ic" >/dev/null 2>&1 \
+      || { err "cannot create $CACHE_DIR/ic (root-owned, no passwordless sudo)"; FAIL=1; continue; }
+    warn "$CACHE_DIR is root-owned and sudo needs a password -- rsync to USB will need sudo too"
+  fi
 
   # --- 1. SFNO -----------------------------------------------------------
-  if on_node "$node" "test -s '$CACHE_DIR/earth2studio/sfno/best_ckpt_mp0.tar'"; then
+  if on_node "$node" "test -s '$R_CACHE/earth2studio/sfno/best_ckpt_mp0.tar'"; then
     ok "SFNO weights already cached"
   else
     echo "  fetching SFNO (~6.9 GB)..."
     if on_node "$node" "${DP}docker run --rm --gpus all --ipc=host \
-        -v '$CACHE_DIR':/root/.cache '$IMAGE' python -c \"
+        -v '$R_CACHE':/root/.cache '$IMAGE' python -c \"
 from earth2studio.models.px import SFNO
 SFNO.load_model(SFNO.load_default_package())
 print('FETCH_OK')\"" | grep -q FETCH_OK; then
@@ -145,13 +167,13 @@ print('FETCH_OK')\"" | grep -q FETCH_OK; then
   # earth2studio 0.18 -> $EARTH2STUDIO_CACHE/corrdiff_taiwan, and
   # EARTH2STUDIO_CACHE defaults to ~/.cache/earth2studio, which is the
   # bind-mounted $CACHE_DIR.
-  if on_node "$node" "test -d '$CACHE_DIR/earth2studio/corrdiff_taiwan' && \
-                      test -n \"\$(ls -A '$CACHE_DIR/earth2studio/corrdiff_taiwan' 2>/dev/null)\""; then
+  if on_node "$node" "test -d '$R_CACHE/earth2studio/corrdiff_taiwan' && \
+                      test -n \"\$(ls -A '$R_CACHE/earth2studio/corrdiff_taiwan' 2>/dev/null)\""; then
     ok "CorrDiff weights already cached"
   else
     echo "  fetching CorrDiff Taiwan package..."
     if on_node "$node" "${DP}docker run --rm --gpus all --ipc=host \
-        -v '$CACHE_DIR':/root/.cache '$IMAGE' python -c \"
+        -v '$R_CACHE':/root/.cache '$IMAGE' python -c \"
 from earth2studio.models.dx import CorrDiffTaiwan
 CorrDiffTaiwan.load_model(CorrDiffTaiwan.load_default_package())
 print('FETCH_OK')\"" | grep -q FETCH_OK; then
@@ -166,12 +188,12 @@ print('FETCH_OK')\"" | grep -q FETCH_OK; then
   # Written into $CACHE_DIR (which travels on the stick), NOT $OUTDIR (which
   # ensemble.sh wipes). ensemble.sh copies it out of here when present and
   # skips the NOAA fetch entirely.
-  if on_node "$node" "test -s '$CACHE_DIR/ic/ic_${STAGE_DATE}.nc'"; then
+  if on_node "$node" "test -s '$R_CACHE/ic/ic_${STAGE_DATE}.nc'"; then
     ok "initial conditions for $STAGE_DATE already staged"
   else
     echo "  fetching GFS initial conditions for $STAGE_DATE..."
     if on_node "$node" "${DP}docker run --rm --gpus all --ipc=host \
-        -v '$CACHE_DIR':/root/.cache '$IMAGE' python -c \"
+        -v '$R_CACHE':/root/.cache '$IMAGE' python -c \"
 import numpy as np
 from earth2studio.data import GFS
 from earth2studio.models.px import SFNO
@@ -207,10 +229,13 @@ print('FETCH_OK', da.shape)\"" | grep -q FETCH_OK; then
     # the NGC/vLLM image and the flag is a HARD failure when absent.
     echo "  staging $AGENT_MODEL (~30 GB; progress is silent without a TTY --"
     echo "  watch with: ssh $node 'du -sh ~/.cache/huggingface')"
-    # --entrypoint python: the image's ENTRYPOINT is ["vllm","serve"], so a bare
+    # --entrypoint python3: the image's ENTRYPOINT is ["vllm","serve"], so a bare
     # command argument is parsed as serve's argv and dies on "unrecognized
-    # arguments".
-    if on_node "$node" "${DP}docker run --rm --entrypoint python $HFE \
+    # arguments". It must be python3 -- vllm/vllm-openai ships /usr/bin/python3
+    # with NO `python` alias, and the wrong name fails inside runc with
+    # "exec: \"python\": executable file not found in $PATH", which reads like a
+    # broken image rather than a typo.
+    if on_node "$node" "${DP}docker run --rm --entrypoint python3 $HFE \
         -v \"$HF_CACHE\":/root/.cache/huggingface '$VLLM_IMAGE' -c \"
 from huggingface_hub import snapshot_download
 snapshot_download('$AGENT_MODEL')
@@ -224,10 +249,15 @@ print('FETCH_OK')\"" | grep -q FETCH_OK; then
 
   # --- 5. Manifests ------------------------------------------------------
   echo "  writing manifests..."
-  manifest_for "$node" "$BUNDLE_DIR" "$BUNDLE_DIR/MANIFEST.sha256" "-name '*.tar.zst'"
-  manifest_for "$node" "$CACHE_DIR"  "$CACHE_DIR/MANIFEST.sha256" \
-    "-name '*.tar' -o -name '*.nc' -o -name '*.mdlus' -o -name '*.pt' -o -name '*.ckpt' -o -name '*.zip'"
-  ok "manifests written"
+  R_BUNDLE=$(remote_path "$node" "$BUNDLE_DIR") || { err "path resolve failed"; FAIL=1; continue; }
+  if manifest_for "$node" "$R_BUNDLE" "$R_BUNDLE/MANIFEST.sha256" "-name '*.tar.zst'" \
+     && manifest_for "$node" "$R_CACHE" "$R_CACHE/MANIFEST.sha256" \
+          "-name '*.tar' -o -name '*.nc' -o -name '*.mdlus' -o -name '*.pt' -o -name '*.ckpt' -o -name '*.zip'"; then
+    ok "manifests written"
+  else
+    err "manifest write FAILED on $node -- --verify cannot check this node's copy"
+    FAIL=1
+  fi
 done
 
 # ---------------------------------------------------------------------------

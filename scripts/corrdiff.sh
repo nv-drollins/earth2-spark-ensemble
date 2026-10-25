@@ -12,16 +12,20 @@ node="${NODE_ARR[0]}"
 DP=$(docker_prefix_for "$node")
 [[ "$DP" == "NEEDS_PASSWORD" ]] && { err "docker not usable on $node"; exit 1; }
 
-on_node "$node" "mkdir -p '$OUTDIR' '$RUNDIR'"
-scp -o BatchMode=yes -q "$REPO_ROOT/ensemble/run_corrdiff.py" "$node:$RUNDIR/run_corrdiff.py"
+# Resolve on the NODE -- the control machine's $HOME may differ (see common.sh).
+R_OUT=$(remote_path "$node" "$OUTDIR")      || exit 1
+R_RUN=$(remote_path "$node" "$RUNDIR")      || exit 1
+R_CACHE=$(remote_path "$node" "$CACHE_DIR") || exit 1
+on_node "$node" "mkdir -p '$R_OUT' '$R_RUN'"
+scp -o BatchMode=yes -q "$REPO_ROOT/ensemble/run_corrdiff.py" "$node:$R_RUN/run_corrdiff.py"
 
 # Keep the progress lines, but never swallow a hard failure: piping straight
 # into `grep CORRDIFF_DONE` hides docker errors (a wrong IMAGE tag surfaced
 # only as "nothing collected", which reads like a CorrDiff bug, not a typo).
 LOG=$(mktemp); trap 'rm -f "$LOG"' EXIT
 if ! on_node "$node" "${DP}docker run --rm --gpus all --ipc=host \
-  -v '$CACHE_DIR':/root/.cache -v '$OUTDIR':/out \
-  -v '$RUNDIR/run_corrdiff.py':/run_corrdiff.py \
+  -v '$R_CACHE':/root/.cache -v '$R_OUT':/out \
+  -v '$R_RUN/run_corrdiff.py':/run_corrdiff.py \
   '$IMAGE' python /run_corrdiff.py --date '$DATE' --outdir /out" >"$LOG" 2>&1; then
   err "CorrDiff failed on $node:"; tail -5 "$LOG" | sed 's/^/       /'
   grep -q 'Unable to find image' "$LOG" && \
@@ -31,5 +35,5 @@ fi
 grep -E "CORRDIFF_DONE|corrdiff" "$LOG" | tail -2
 
 mkdir -p "$LOCAL"
-scp -o BatchMode=yes -q "$node:$OUTDIR/corrdiff*" "$LOCAL/" 2>/dev/null \
+scp -o BatchMode=yes -q "$node:$R_OUT/corrdiff*" "$LOCAL/" 2>/dev/null \
   && ok "collected" || { err "ran but collected nothing from $node:$OUTDIR"; exit 1; }

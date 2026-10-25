@@ -50,22 +50,26 @@ done
 hdr "Warming initial-condition cache"
 for node in "${RUN_NODES[@]}"; do
   DP=$(docker_prefix_for "$node")
-  on_node "$node" "mkdir -p '$OUTDIR' '$RUNDIR'"
-  scp -o BatchMode=yes -q "$REPO_ROOT/ensemble/run_member.py" "$node:$RUNDIR/run_member.py"
+  # Resolve paths on the NODE: the control machine's $HOME may differ.
+  R_OUT=$(remote_path "$node" "$OUTDIR") || { err "path resolve failed"; continue; }
+  R_RUN=$(remote_path "$node" "$RUNDIR") || { err "path resolve failed"; continue; }
+  R_CACHE=$(remote_path "$node" "$CACHE_DIR") || { err "path resolve failed"; continue; }
+  on_node "$node" "mkdir -p '$R_OUT' '$R_RUN'"
+  scp -o BatchMode=yes -q "$REPO_ROOT/ensemble/run_member.py" "$node:$R_RUN/run_member.py"
   echo "  $node"
   # Prefer an IC staged by scripts/stage-offline.sh. It lives in $CACHE_DIR
   # (which travels on the USB stick) rather than $OUTDIR (which this script
   # wipes), so an offline venue needs no NOAA fetch at all. Requires DATE to
   # match what was staged -- the default here is "2 days ago", which drifts.
-  if on_node "$node" "test -s '$CACHE_DIR/ic/ic_${DATE}.nc'"; then
-    on_node "$node" "cp -f '$CACHE_DIR/ic/ic_${DATE}.nc' '$OUTDIR/ic_${DATE}.nc'" \
+  if on_node "$node" "test -s '$R_CACHE/ic/ic_${DATE}.nc'"; then
+    on_node "$node" "cp -f '$R_CACHE/ic/ic_${DATE}.nc' '$R_OUT/ic_${DATE}.nc'" \
       && { ok "using staged IC for $DATE (offline)"; continue; }
   fi
   # Materialise the FULL initial condition to a file every member then reads.
   # Warming the cache is not enough: independent GFS() calls can still resolve
   # to different analyses. A shared file makes "identical inputs" structural.
   on_node "$node" "${DP}docker run --rm --gpus all --ipc=host \
-      -v '$CACHE_DIR':/root/.cache -v '$OUTDIR':/out \
+      -v '$R_CACHE':/root/.cache -v '$R_OUT':/out \
       '$IMAGE' python -c \"
 import numpy as np
 from earth2studio.data import GFS
@@ -99,22 +103,25 @@ for ((m=0; m<MEMBERS; m++)); do
   node="${RUN_NODES[$((m % n))]}"
   DP=$(docker_prefix_for "$node")
   [[ "$DP" == "NEEDS_PASSWORD" ]] && { err "docker not usable on $node"; continue; }
+  R_OUT=$(remote_path "$node" "$OUTDIR")   || { err "path resolve failed on $node"; continue; }
+  R_RUN=$(remote_path "$node" "$RUNDIR")   || { err "path resolve failed on $node"; continue; }
+  R_CACHE=$(remote_path "$node" "$CACHE_DIR") || { err "path resolve failed on $node"; continue; }
 
   # Clear prior member output on this node. Without this a SMALLER run leaves
   # the previous run's extra members on disk; collect.sh then pulls them and
   # the display mixes two different forecasts (visible as members carrying an
   # older init date in the results block).
-  on_node "$node" "mkdir -p '$OUTDIR' '$RUNDIR' && rm -f '$OUTDIR'/member_*" 
+  on_node "$node" "mkdir -p '$R_OUT' '$R_RUN' && rm -f '$R_OUT'/member_*" 
   # Ship the member script to the node rather than assuming the repo is
   # cloned there -- the cluster nodes need no git checkout at all.
-  scp -o BatchMode=yes -q "$REPO_ROOT/ensemble/run_member.py" "$node:$RUNDIR/run_member.py"
+  scp -o BatchMode=yes -q "$REPO_ROOT/ensemble/run_member.py" "$node:$R_RUN/run_member.py"
   echo "  member $m -> $node"
   # Record the REAL assignment so the display's cluster card reflects which
   # nodes actually ran members, rather than assuming the whole roster did.
   echo "${node##*@} $m" >> "$ASSIGN_TMP"
   on_node "$node" "${DP}docker run --rm --gpus all --ipc=host \
-      -v '$CACHE_DIR':/root/.cache -v '$OUTDIR':/out \
-      -v '$RUNDIR/run_member.py':/run_member.py \
+      -v '$R_CACHE':/root/.cache -v '$R_OUT':/out \
+      -v '$R_RUN/run_member.py':/run_member.py \
       '$IMAGE' python /run_member.py \
       --member $m --date '$DATE' --steps $STEPS --outdir /out \
       --ic-file /out/ic_${DATE}.nc" \

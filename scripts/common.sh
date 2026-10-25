@@ -35,6 +35,35 @@ on_node() {
   ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new "$target" "bash -lc $(printf '%q' "$*")"
 }
 
+# Remote paths MUST be expanded on the NODE, never on the control machine.
+# $HOME on a laptop (/home/drollins) is NOT $HOME on a Spark (/home/nvidia),
+# and `docker -v` SILENTLY CREATES a missing bind-mount source as a directory
+# -- so a wrong path yields an empty mount and the baffling runtime error
+#   /usr/bin/python: can't find '__main__' module in '/run_member.py'
+# which names neither the path nor the mount. This only appears when the
+# control machine's username differs from the nodes', so it hides completely
+# while you drive the cluster from a machine with the same login.
+# Cached per node: one SSH round-trip each, not one per member.
+declare -A _E2_REMOTE_HOME
+remote_home() {
+  local target="$1"
+  if [[ -z "${_E2_REMOTE_HOME[$target]:-}" ]]; then
+    _E2_REMOTE_HOME[$target]=$(ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
+      "$target" 'printf %s "$HOME"' 2>/dev/null)
+    [[ -z "${_E2_REMOTE_HOME[$target]}" ]] && {
+      err "could not resolve \$HOME on $target"; return 1; }
+  fi
+  printf '%s' "${_E2_REMOTE_HOME[$target]}"
+}
+
+# Rewrite a path templated on the LOCAL home into the node's own home.
+# Run every remote path through this before ssh/scp/docker -v.
+remote_path() {
+  local target="$1" path="$2" rh
+  rh=$(remote_home "$target") || return 1
+  printf '%s' "${path/#$HOME/$rh}"
+}
+
 # Docker may require sudo if the login user is not in the docker group.
 # NEVER assume passwordless sudo -- probe and report instead.
 docker_prefix_for() {

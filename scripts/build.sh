@@ -11,17 +11,19 @@ source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 DP=$(docker_prefix_for "$BUILD_NODE")
 [[ "$DP" == "NEEDS_PASSWORD" ]] && { err "docker not usable on $BUILD_NODE -- run scripts/preflight.sh"; exit 1; }
 
-TARBALL="$BUNDLE_DIR/$(echo "$IMAGE" | tr ':/' '__').tar.zst"
+# Resolve on the NODE: the control machine's $HOME may differ (see common.sh).
+R_BUNDLE=$(remote_path "$BUILD_NODE" "$BUNDLE_DIR") || exit 1
+TARBALL="$R_BUNDLE/$(echo "$IMAGE" | tr ':/' '__').tar.zst"
 
 hdr "Building $IMAGE on $BUILD_NODE"
 echo "This takes ~10-15 min cold (48 GB base pull) or ~3 min warm."
 
-on_node "$BUILD_NODE" "mkdir -p '$BUNDLE_DIR'"
+on_node "$BUILD_NODE" "mkdir -p '$R_BUNDLE'"
 # Ship the build context (just the Dockerfile) to the node.
-scp -o BatchMode=yes -q "$REPO_ROOT/docker/Dockerfile" "$BUILD_NODE:$BUNDLE_DIR/Dockerfile" || {
+scp -o BatchMode=yes -q "$REPO_ROOT/docker/Dockerfile" "$BUILD_NODE:$R_BUNDLE/Dockerfile" || {
   err "failed to copy Dockerfile"; exit 1; }
 
-if ! on_node "$BUILD_NODE" "cd '$BUNDLE_DIR' && ${DP}docker build \
+if ! on_node "$BUILD_NODE" "cd '$R_BUNDLE' && ${DP}docker build \
       --build-arg BASE_IMAGE='$BASE_IMAGE' \
       --build-arg E2S_VERSION='$E2S_VERSION' \
       --build-arg MAKANI_REF='$MAKANI_REF' \

@@ -7,6 +7,7 @@ FAIL=0
 for node in "${NODE_ARR[@]}"; do
   hdr "$node"
   DP=$(docker_prefix_for "$node")
+  R_CACHE=$(remote_path "$node" "$CACHE_DIR") || { err "path resolve failed"; continue; }
   [[ "$DP" == "NEEDS_PASSWORD" ]] && { err "docker not usable"; FAIL=1; continue; }
 
   if ! on_node "$node" "${DP}docker image inspect '$IMAGE' >/dev/null 2>&1"; then
@@ -14,7 +15,7 @@ for node in "${NODE_ARR[@]}"; do
   fi
 
   out=$(on_node "$node" "${DP}docker run --rm --gpus all --ipc=host \
-      -v '$CACHE_DIR':/root/.cache '$IMAGE' python -c \"
+      -v '$R_CACHE':/root/.cache '$IMAGE' python -c \"
 import torch, earth2studio, makani, torch_harmonics
 assert torch.cuda.is_available(), 'CUDA not available'
 from earth2studio.models.px import SFNO
