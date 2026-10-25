@@ -22,17 +22,27 @@ RUN pip install --no-cache-dir --no-build-isolation \
 
 # ---------------------------------------------------------------------------
 # makani -- NOT on PyPI (pypi.org/pypi/makani/json -> 404).
-#  (a) `pip install earth2studio[sfno]` silently backtracks
-#      earth2studio 0.18.0 -> 0.5.0 because the resolver cannot satisfy the
-#      makani extra. Install makani from source FIRST so the extra resolves.
-#  (b) Use main, NOT the v0.2.1 release tag. v0.2.1 imports
-#      physicsnemo.models.meta / physicsnemo.registry, both REMOVED in
-#      PhysicsNeMo 2.2.0 which this container ships ->
-#      ModuleNotFoundError: No module named 'physicsnemo.models.meta'.
-#      There is no makani commit that works with both PhysicsNeMo 2.2 and
-#      torch-harmonics 0.8.0, which is why TH comes from git above.
+#   (a) `pip install earth2studio[sfno]` silently backtracks
+#       earth2studio 0.18.0 -> 0.5.0 because the resolver cannot satisfy the
+#       makani extra. Install makani from source FIRST so the extra resolves.
+#   (b) Use a PINNED COMMIT, not `main` and not the v0.2.1 release tag.
+#       - v0.2.1 imports physicsnemo.models.meta / physicsnemo.registry, both
+#         REMOVED in PhysicsNeMo 2.2.0 which this container ships ->
+#         ModuleNotFoundError: No module named 'physicsnemo.models.meta'.
+#       - `main` BREAKS SFNO as of commit 79a838d2 ("store all invariants in
+#         single file", 2026-10-12). It discontinued the 'add_orography' and
+#         'add_landmask' options that the PUBLISHED SFNO checkpoint config
+#         still sets, so SFNO.load_model() dies at RUNTIME with:
+#           ValueError: The options ['add_orography', 'add_landmask'] are
+#           discontinued. Write an invariants file with ...
+#         The image builds clean and CorrDiff still works -- only SFNO fails,
+#         which is why this must be caught by scripts/verify.sh and never
+#         assumed from a green build.
+#       01c7776f68 is 79a838d2's PARENT: the newest commit that still carries
+#       the PhysicsNeMo 2.2 API fixes AND loads the published checkpoint.
+#       Verified on GB10: SFNO_OK, 289.4M params.
 # ---------------------------------------------------------------------------
-ARG MAKANI_REF=main
+ARG MAKANI_REF=01c7776f68b72809939ba3c30c3eb0adecfc4922
 RUN pip install --no-cache-dir --no-deps \
     "makani @ git+https://github.com/NVIDIA/makani.git@${MAKANI_REF}"
 
