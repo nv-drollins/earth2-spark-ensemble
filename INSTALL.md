@@ -323,6 +323,19 @@ rsync -a --info=progress2 "$E2B/e2dist/" e2-spark-1:~/e2dist/
 
 Loads on Spark 1, streams to Sparks 2 and 3. No node-to-node SSH keys needed.
 
+On Spark 1 you will see **`first node: loading from the tarball already on this
+node`**. That is correct for a from-USB install: you copied the tarball in
+(3.1) rather than building it here, so the image is not loaded yet and the
+script loads it from the local file instead of streaming it from itself.
+Older checkouts phrase this as `WARN build node lacks its own image` — same
+behaviour, misleading wording.
+
+Confirm all three ended up with it:
+
+```bash
+for n in e2-spark-1 e2-spark-2 e2-spark-3; do printf "%-11s " $n; ssh $n 'docker images --format "{{.Repository}}:{{.Tag}}" | grep earth2 || echo MISSING'; done
+```
+
 ### 3.3 Weights to every Spark
 
 ```bash

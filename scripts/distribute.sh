@@ -24,7 +24,12 @@ for node in "${NODE_ARR[@]}"; do
   fi
 
   if [[ "$node" == "$BUILD_NODE" ]]; then
-    warn "build node lacks its own image; loading from local tarball"
+    # NORMAL on a from-USB install: the tarball was copied here rather than
+    # built here, so the image is not loaded yet. (After scripts/build.sh the
+    # image IS already present and this node is skipped above.) Not a warning
+    # -- say what is happening so an operator following INSTALL.md does not
+    # read it as a fault.
+    echo "  first node: loading from the tarball already on this node"
   else
     echo "  copying bundle (~14 GB over LAN)..."
     on_node "$node" "mkdir -p '$R_BUNDLE'"
