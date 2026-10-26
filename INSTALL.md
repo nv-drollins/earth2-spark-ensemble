@@ -119,7 +119,28 @@ brought your own switch, mDNS usually just works).
 
 This is the only genuinely site-specific work.
 
-### 2.1 Push your key to all three
+### 2.1 Clear stale host keys FIRST (only when reinstalling)
+
+A wiped Spark generates a new SSH host key. If this laptop has talked to that
+address before, the first connection aborts with:
+
+```
+WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!
+Someone could be eavesdropping on you right now (man-in-the-middle attack!)
+```
+
+That is expected after a reinstall, not an attack — and `ssh-copy-id` refuses
+to run until it is cleared. Do this for every address you are reusing:
+
+```bash
+ssh-keygen -R <spark-1-addr>
+ssh-keygen -R <spark-2-addr>
+ssh-keygen -R <spark-3-addr>
+```
+
+Skip this at a venue with brand-new addresses — there is nothing cached to clear.
+
+### 2.2 Push your key to all three
 
 ```bash
 ssh-copy-id -o StrictHostKeyChecking=accept-new <user>@<spark-1-addr>
@@ -130,7 +151,7 @@ ssh-copy-id -o StrictHostKeyChecking=accept-new <user>@<spark-3-addr>
 Each asks for that Spark's password once. If you have no key yet:
 `ssh-keygen -t ed25519 -N "" -f ~/.ssh/id_ed25519`
 
-### 2.2 Write the aliases — THE ONLY FILE WITH SITE DETAILS
+### 2.3 Write the aliases — THE ONLY FILE WITH SITE DETAILS
 
 ```bash
 cat >> ~/.ssh/config <<'EOF'
@@ -167,7 +188,7 @@ for n in e2-spark-1 e2-spark-2 e2-spark-3; do printf "%-11s -> " $n; ssh $n host
 > scripts resolve each node's `$HOME` over SSH. (This was a real bug — fixed in
 > commit 8dc3f27 — so if you are running an older checkout, `git pull` first.)
 
-### 2.3 Create `cluster.conf`
+### 2.4 Create `cluster.conf`
 
 ```bash
 cd ~/earth2-spark-ensemble
@@ -189,7 +210,7 @@ be expanded on each node, not here.
 `NODES` uses **aliases**, so this file is byte-identical at the lab and the
 venue. `IMAGE` **must** match the tarball you carried (`1.1`).
 
-### 2.4 Preflight
+### 2.5 Preflight
 
 ```bash
 ./scripts/preflight.sh
@@ -201,7 +222,7 @@ All three must be green. Common failures:
 |---|---|
 | `user is not in the 'docker' group` | Stage 1.2, then log out/in on that Spark |
 | `zstd missing` | Stage 1.3 |
-| `SSH failed` | Stage 2.1, or wrong `HostName` |
+| `SSH failed` | Stage 2.2, or wrong `HostName` |
 | `disk <80G free` | free space before continuing |
 
 ---
