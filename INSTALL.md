@@ -128,7 +128,44 @@ Verify — this must work with no `sudo`:
 docker run --rm hello-world
 ```
 
-### 1.3 Install `zstd` and `openssh-server`
+### 1.3 Configure the NVIDIA Container Toolkit
+
+DGX OS ships the toolkit **installed but NOT configured** — Docker does not
+know about the `nvidia` runtime until you register it. Every bit of compute in
+this demo runs with `--gpus all`, so without this step SFNO fails at load time
+with:
+
+```
+OSError: libcuda.so.1: cannot open shared object file
+```
+
+which reads as a broken image rather than a missing runtime hook.
+
+```bash
+sudo nvidia-ctk runtime configure --runtime=docker
+sudo systemctl restart docker
+```
+
+Verify Docker now lists it:
+
+```bash
+docker info | grep -i runtimes        # must include 'nvidia'
+```
+
+Then prove it end to end — this is the check that matters, because it
+exercises the hook that injects `libcuda.so.1`:
+
+```bash
+docker run --rm --gpus all nvcr.io/nvidia/cuda:13.0.0-base-ubuntu24.04 nvidia-smi
+```
+
+It must print the GB10 table. If it fails with `could not select device driver`,
+the runtime is still not registered — re-run `nvidia-ctk` and restart Docker.
+
+> If `nvidia-ctk` is missing entirely (not the case on stock DGX OS):
+> `sudo apt install -y nvidia-container-toolkit`
+
+### 1.4 Install `zstd` and `openssh-server`
 
 ```bash
 sudo apt update
@@ -139,7 +176,7 @@ sudo systemctl enable --now ssh
 `zstd` unpacks the image bundle; without it `distribute.sh` fails at the last
 step after copying 15 GB.
 
-### 1.4 Note the address
+### 1.5 Note the address
 
 ```bash
 ip -4 -br addr | grep -v '^lo'
@@ -256,6 +293,7 @@ All three must be green. Common failures:
 | message | fix |
 |---|---|
 | `user is not in the 'docker' group` | Stage 1.2, then log out/in on that Spark |
+| `NVIDIA container runtime not visible` | Stage 1.3 — toolkit installed but not configured |
 | `zstd missing` | Stage 1.3 |
 | `SSH failed` | Stage 2.2, or wrong `HostName` |
 | `disk <80G free` | free space before continuing |
