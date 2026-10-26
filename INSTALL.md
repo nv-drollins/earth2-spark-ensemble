@@ -493,6 +493,35 @@ stays on disk as the fallback.
 
 ---
 
+## Not used during install: the 200GbE fabric
+
+Reasonable question, so it is answered here rather than rediscovered: the CX7
+fabric is **not** used by any install step today, and wiring it in would be a
+smaller win than it sounds.
+
+Of the ~45 GB moved during an install, **most of it comes off the control
+laptop** — the tarball to node 1, `e2cache` to all three, `hf-cache` to the
+agent node. The laptop has no CX7, so those legs run at LAN speed no matter
+what the Sparks have between them.
+
+Only the node-to-node leg could use it, and `distribute.sh` deliberately does
+not: it streams `build-node -> control-machine -> target`, which avoids
+requiring node-to-node SSH keys that are usually absent on a fresh cluster.
+
+Measured, if it were wired in: a 14 GB tarball is ~174 s over 1 GbE versus
+~1 s over 200 GbE — roughly **8-10 minutes saved on a ~60 minute install**.
+
+A larger restructure (copy everything to node 1 once, fan out over the fabric)
+would help more, but it needs node-to-node keys, a reconfigured CX7 ring after
+any wipe, and a change to `distribute.sh` — three new failure modes on the one
+path that must not fail at a venue. It also assumes you cable the fabric at the
+show, which is optional.
+
+**The fabric changes nothing an attendee sees.** The ensemble is
+embarrassingly parallel: each member is an independent `docker run` over SSH,
+with no NCCL, no `torch.distributed`, no inter-node traffic during compute.
+One member is a 37 MB `.npy`; collecting six moves ~224 MB.
+
 ## Pitfalls that cost a show
 
 1. **Never rebuild at a venue.** `build.sh` needs internet and pulls whatever
