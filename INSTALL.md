@@ -356,9 +356,11 @@ zstd -dc /mnt/usb/e2bundle/e2dist/earth2-spark_1.1.tar.zst | docker load
 docker images | grep earth2              # expect earth2-spark:1.1
 ```
 
-Expect ~1.5-3 min. On a fast stick this step is **CPU-bound on zstd
-decompression**, not limited by the drive, so a faster stick will not make it
-shorter.
+Expect ~1.5-3 min. Nearly all of that is `docker load` unpacking layers to
+disk — **not** decompression and not the stick: measured on GB10, zstd runs at
+~1.1 GB/s, so the whole 14.1 GiB stream decompresses in ~13 s. Storing the
+image uncompressed would save those seconds and cost 34 GB more on the drive,
+which is why it ships as `.tar.zst`.
 
 **2. Model weights** (every Spark needs its own copy):
 
@@ -381,6 +383,11 @@ find ~/.cache/huggingface -type l | wc -l   # expect ~112 symlinks
 
 Extract to `/tmp` (Linux), never onto the stick — NTFS cannot hold the
 symlinks, which is the entire reason this ships as a tar. `/tmp` needs ~21 GB.
+
+This tar is deliberately **uncompressed** (`tar -cf`, no `-z`): its payload is
+already-compressed model weights, so compression would burn CPU on both ends
+for almost no saving. It exists to preserve symlinks across a non-Unix
+filesystem, nothing else.
 
 **4. Unmount before pulling the stick:**
 
