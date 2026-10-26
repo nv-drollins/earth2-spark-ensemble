@@ -25,6 +25,27 @@ Total **~45 GB**. Use a USB 3.x stick with ≥64 GB free.
 internet and ~90 minutes. Never wipe every machine that holds it without a copy
 elsewhere first.
 
+### Choosing the USB drive — two traps that waste an hour each
+
+| requirement | why |
+|---|---|
+| **NOT FAT32** | FAT32 caps a single file at **4 GB**. The image tarball is 15 GB, so a FAT32 stick CANNOT hold it — by any method. Use NTFS or exFAT. |
+| **USB 3 port** | Measured on the same workstation: USB 2 (480 Mbit/s) ~40 MB/s vs USB 3 (5000 Mbit/s). 45 GB is ~20 min vs ~5 min. Check with `lsusb -t`. |
+
+**A GUI copy that sits at 99% is usually not hung.** Linux accepts writes into
+page cache, so the progress bar finishes long before the drive does —
+`grep Dirty /proc/meminfo` showed **18.9 GB still unwritten** while a desktop
+copy looked complete. Use `scripts/copy-bundle-to-usb.sh`, which reports real
+throughput and calls `sync` before declaring success.
+
+```bash
+# [WORKSTATION] writes the bundle and verifies checksums
+./scripts/copy-bundle-to-usb.sh /media/<user>/<LABEL>
+```
+
+It refuses FAT32 up front, packs the symlinked LLM cache into a tar, and
+verifies file counts, byte totals and a sha256 of the 15 GB tarball.
+
 ---
 
 ## Stage 0 — [LAPTOP] Check your kit before touching the Sparks
@@ -223,9 +244,24 @@ Every node needs its own copy — a node without weights cannot run a member.
 
 Skip for a forecast-only show.
 
+The LLM cache ships as **`hf-cache.tar`**, not a plain directory. The
+HuggingFace cache is built from symlinks (`snapshots/*.json` -> `../../blobs/<sha>`)
+and **neither NTFS, exFAT nor FAT32 can store a Unix symlink** — a plain copy
+fails with `symlink ... Operation not permitted` and leaves the model
+unusable. The tar preserves them; Linux restores them on extract.
+
 ```bash
+# [LAPTOP] -- extract to local disk, NOT onto the USB drive
+tar -xf /media/*/e2bundle/hf-cache.tar -C /tmp
 ssh e2-spark-3 'mkdir -p ~/.cache/huggingface'
-rsync -a --info=progress2 /media/*/hf-cache/ e2-spark-3:~/.cache/huggingface/
+rsync -a --info=progress2 /tmp/hf-cache/ e2-spark-3:~/.cache/huggingface/
+rm -rf /tmp/hf-cache
+```
+
+Verify it landed as ~21 GB with symlinks intact:
+
+```bash
+ssh e2-spark-3 'du -sh ~/.cache/huggingface; find ~/.cache/huggingface -type l | wc -l'
 ```
 
 ### 3.5 Verify
