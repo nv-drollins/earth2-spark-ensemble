@@ -50,9 +50,44 @@ verifies file counts, byte totals and a sha256 of the 15 GB tarball.
 
 ## Stage 0 — [LAPTOP] Check your kit before touching the Sparks
 
+### Where the bundle lives — do NOT copy it into WSL
+
+On a Windows + WSL2 laptop, leave the bundle **on the Windows drive**. WSL
+reads it directly through `/mnt/c`, so copying it into the Linux filesystem
+just burns 45 GB and an hour for no benefit.
+
+| Windows path | the same thing from WSL |
+|---|---|
+| `C:\demos\earth2\e2bundle` | `/mnt/c/demos/earth2/e2bundle` |
+
+Set it once per session and every command below just works:
+
 ```bash
-ls -lh /media/*/e2dist/*.tar.zst        # ~15 GB tarball present?
-du -sh /media/*/e2cache /media/*/hf-cache
+export E2B=/mnt/c/demos/earth2/e2bundle      # adjust to YOUR path
+```
+
+Add it to `~/.bashrc` so it survives a reboot:
+`echo 'export E2B=/mnt/c/demos/earth2/e2bundle' >> ~/.bashrc`
+
+> **Windows->Linux does not add junk files here.** The `:Zone.Identifier`
+> streams people worry about are NTFS alternate data streams attached to
+> downloads; `rsync` copies file contents and ignores them. The bundle was
+> produced on Linux, so it carries none anyway.
+>
+> The one real cross-filesystem problem is **symlinks**, which is exactly why
+> the LLM cache ships as `hf-cache.tar` (see 3.4). `e2dist` and `e2cache`
+> contain **zero** symlinks — verified — so they cross cleanly.
+>
+> `/mnt/c` is slower than native (WSL's 9p layer, ~50-100 MB/s). You are
+> pushing over the network anyway, so this rarely matters. If a copy crawls,
+> move just the 15 GB tarball into WSL first and rsync from there.
+
+### Check everything is present
+
+```bash
+ls -lh $E2B/e2dist/*.tar.zst            # ~15 GB tarball
+du -sh $E2B/e2cache $E2B/hf-cache.tar   # ~8.5 GB and ~21 GB
+tar -tf $E2B/hf-cache.tar | wc -l       # ~415 entries = readable
 cd ~/earth2-spark-ensemble && git pull  # get the latest fixes
 .venv/bin/python -c "import fastapi,uvicorn,jinja2,PIL,numpy; print('viz deps OK')"
 ```
@@ -239,7 +274,7 @@ fresh hardware nothing is there yet, so without this it exits immediately with
 
 ```bash
 ssh e2-spark-1 'mkdir -p ~/e2dist'
-rsync -a --info=progress2 /media/*/e2dist/ e2-spark-1:~/e2dist/
+rsync -a --info=progress2 "$E2B/e2dist/" e2-spark-1:~/e2dist/
 ```
 
 ### 3.2 Distribute the image
@@ -255,7 +290,7 @@ Loads on Spark 1, streams to Sparks 2 and 3. No node-to-node SSH keys needed.
 ```bash
 for n in e2-spark-1 e2-spark-2 e2-spark-3; do
   ssh $n 'mkdir -p ~/e2cache'
-  rsync -a --info=progress2 /media/*/e2cache/ $n:~/e2cache/
+  rsync -a --info=progress2 "$E2B/e2cache/" $n:~/e2cache/
 done
 ```
 
@@ -272,12 +307,16 @@ fails with `symlink ... Operation not permitted` and leaves the model
 unusable. The tar preserves them; Linux restores them on extract.
 
 ```bash
-# [LAPTOP] -- extract to local disk, NOT onto the USB drive
-tar -xf /media/*/e2bundle/hf-cache.tar -C /tmp
+# [LAPTOP] -- extract to the LINUX filesystem, never onto /mnt/c or a USB drive:
+# NTFS cannot hold the symlinks, which is the whole reason this is a tar.
+tar -xf "$E2B/hf-cache.tar" -C /tmp
 ssh e2-spark-3 'mkdir -p ~/.cache/huggingface'
 rsync -a --info=progress2 /tmp/hf-cache/ e2-spark-3:~/.cache/huggingface/
 rm -rf /tmp/hf-cache
 ```
+
+`/tmp` needs ~21 GB free (`df -h /tmp`). On WSL that is the VM's own disk,
+which grows on demand.
 
 Verify it landed as ~21 GB with symlinks intact:
 
