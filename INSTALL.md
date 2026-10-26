@@ -311,7 +311,94 @@ All three must be green. Common failures:
 
 No internet needed.
 
-### 3.1 Copy the tarball to Spark 1 — DO THIS FIRST
+### Stage 3 has two paths — pick one
+
+| | when to use it | ~45 GB takes |
+|---|---|---|
+| **A. USB at each Spark** (3.0 below) | the Sparks are physically reachable and you have `sudo` | **~8 min** |
+| **B. Over the LAN** (3.1-3.4) | Sparks are racked/remote, or no `sudo` on them | ~25-35 min |
+
+Path A is faster because `e2cache` otherwise crosses the LAN **three times**
+(once per node) and `hf-cache` once more. It also removes the laptop as a
+single point of failure during install. Path B is the fallback and is fully
+supported — the two produce an identical result.
+
+**They interoperate.** `distribute.sh` skips any node that already has the
+image, so after Path A it just confirms all three are ready. You can also do
+Path A on some nodes and Path B on the rest.
+
+---
+
+### 3.0 PATH A — load from USB at each Spark
+
+Do this **on each Spark in turn**, with the stick plugged into that Spark.
+Nothing here touches the network.
+
+**Find the stick:**
+
+```bash
+lsblk -o NAME,SIZE,FSTYPE,LABEL          # look for your bundle drive
+```
+
+**Mount it** (DGX OS has the NTFS driver but does not auto-load it; exFAT
+sticks work the same way with `-t exfat`):
+
+```bash
+sudo mkdir -p /mnt/usb
+sudo mount -t ntfs3 /dev/sda1 /mnt/usb   # use the device lsblk showed
+ls /mnt/usb/e2bundle                     # sanity check
+```
+
+**1. Load the image** — straight off the stick, no network:
+
+```bash
+zstd -dc /mnt/usb/e2bundle/e2dist/earth2-spark_1.1.tar.zst | docker load
+docker images | grep earth2              # expect earth2-spark:1.1
+```
+
+Expect ~1.5-3 min. On a fast stick this step is **CPU-bound on zstd
+decompression**, not limited by the drive, so a faster stick will not make it
+shorter.
+
+**2. Model weights** (every Spark needs its own copy):
+
+```bash
+mkdir -p ~/e2cache
+cp -r /mnt/usb/e2bundle/e2cache/* ~/e2cache/
+du -sh ~/e2cache                         # expect ~8.5 GB
+```
+
+**3. Agent LLM — on the agent node ONLY** (skip for forecast-only):
+
+```bash
+mkdir -p ~/.cache/huggingface
+tar -xf /mnt/usb/e2bundle/hf-cache.tar -C /tmp
+cp -a /tmp/hf-cache/. ~/.cache/huggingface/
+rm -rf /tmp/hf-cache
+du -sh ~/.cache/huggingface              # expect ~21 GB
+find ~/.cache/huggingface -type l | wc -l   # expect ~112 symlinks
+```
+
+Extract to `/tmp` (Linux), never onto the stick — NTFS cannot hold the
+symlinks, which is the entire reason this ships as a tar. `/tmp` needs ~21 GB.
+
+**4. Unmount before pulling the stick:**
+
+```bash
+sync && sudo umount /mnt/usb
+```
+
+**Then, once per cluster, from the LAPTOP:**
+
+```bash
+./scripts/distribute.sh     # should say "already has earth2-spark:1.1 -- skipping" x3
+```
+
+Skip 3.1-3.4 entirely and go to **3.5 Verify**.
+
+---
+
+### 3.1 PATH B — copy the tarball to Spark 1 — DO THIS FIRST
 
 `distribute.sh` streams the tarball **from the first node in `NODES`**. On
 fresh hardware nothing is there yet, so without this it exits immediately with
