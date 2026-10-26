@@ -54,52 +54,59 @@ verifies file counts, byte totals and a sha256 of the 15 GB tarball.
 
 On a Windows + WSL2 laptop, leave the bundle **on the Windows drive**. WSL
 reads it directly through `/mnt/c`, so copying it into the Linux filesystem
-just burns 45 GB and an hour for no benefit.
+burns 45 GB and an hour for no benefit.
 
 | Windows path | the same thing from WSL |
 |---|---|
 | `C:\demos\earth2\e2bundle` | `/mnt/c/demos/earth2/e2bundle` |
 
-Set it once per session and every command below just works:
+Every command in this guide uses that literal path. **If yours differs, the
+only thing to change is the `/mnt/c/...` part** — the right-hand side of each
+`rsync` (`node:~/...`) is the SPARK's home directory and must not change.
 
-```bash
-export E2B=/mnt/c/demos/earth2/e2bundle      # adjust to YOUR path
-```
+> **Reading an `rsync` line:** everything left of the colon is your laptop,
+> everything after `node:` is the Spark. `~/e2cache` on the right means
+> `/home/<spark-user>/e2cache` on that Spark, not a path on your laptop.
 
-Add it to `~/.bashrc` so it survives a reboot:
-`echo 'export E2B=/mnt/c/demos/earth2/e2bundle' >> ~/.bashrc`
-
-> **Windows->Linux does not add junk files here.** The `:Zone.Identifier`
-> streams people worry about are NTFS alternate data streams attached to
-> downloads; `rsync` copies file contents and ignores them. The bundle was
-> produced on Linux, so it carries none anyway.
->
-> The one real cross-filesystem problem is **symlinks**, which is exactly why
-> the LLM cache ships as `hf-cache.tar` (see 3.4). `e2dist` and `e2cache`
-> contain **zero** symlinks — verified — so they cross cleanly.
->
-> `/mnt/c` is slower than native (WSL's 9p layer, ~50-100 MB/s). You are
-> pushing over the network anyway, so this rarely matters. If a copy crawls,
-> move just the 15 GB tarball into WSL first and rsync from there.
+> **Windows->Linux does not add junk files here.** `:Zone.Identifier` streams
+> are NTFS metadata on downloaded files; `rsync` copies contents and ignores
+> them, and a Linux-produced bundle has none. The one real cross-filesystem
+> problem is **symlinks**, which is why the LLM cache ships as a tar (3.4).
+> `e2dist` and `e2cache` contain zero symlinks — verified.
 
 ### Check everything is present
 
 ```bash
-ls -lh $E2B/e2dist/*.tar.zst            # ~15 GB tarball
-du -sh $E2B/e2cache $E2B/hf-cache.tar   # ~8.5 GB and ~21 GB
-tar -tf $E2B/hf-cache.tar | wc -l       # ~415 entries = readable
-cd ~/earth2-spark-ensemble && git pull  # get the latest fixes
+ls -lh /mnt/c/demos/earth2/e2bundle/e2dist/*.tar.zst     # ~15 GB tarball
+du -sh /mnt/c/demos/earth2/e2bundle/e2cache              # ~8.5 GB
+du -sh /mnt/c/demos/earth2/e2bundle/hf-cache.tar         # ~21 GB
+tar -tf /mnt/c/demos/earth2/e2bundle/hf-cache.tar | wc -l   # ~415 = readable
+cd ~/earth2-spark-ensemble && git pull
 .venv/bin/python -c "import fastapi,uvicorn,jinja2,PIL,numpy; print('viz deps OK')"
 ```
 
-If `viz deps OK` does not print, rebuild the venv:
+### The IC date for THIS bundle: `2026-10-23`
+
+The bundle carries pre-fetched initial conditions for one date. Wherever this
+guide says `<IC-DATE>`, use **`2026-10-23`**.
+
+It is the date the forecast STARTS from, not today's date and not the event
+date. To confirm what your bundle actually holds:
 
 ```bash
-cd ~/earth2-spark-ensemble
-python3 -m venv .venv && .venv/bin/pip install -r viz/requirements.txt
+ls /mnt/c/demos/earth2/e2bundle/e2cache/ic/        # ic_<DATE>.nc
 ```
 
----
+### What each Spark needs before you start (Stage 1 does this)
+
+Per Spark, three things — all covered in Stage 1, listed here so you can see
+the whole shape first:
+
+| | why |
+|---|---|
+| `sudo usermod -aG docker $USER` **+ log out/in** | scripts refuse to run docker via password-sudo |
+| `sudo nvidia-ctk runtime configure --runtime=docker` **+ restart docker** | DGX OS ships the toolkit INSTALLED BUT NOT CONFIGURED; without it every `--gpus all` container fails |
+| `sudo apt install -y zstd openssh-server` | `zstd` unpacks the image bundle |
 
 ## Stage 1 — [SPARK-n] Bring each Spark up after the wipe
 
@@ -312,7 +319,7 @@ fresh hardware nothing is there yet, so without this it exits immediately with
 
 ```bash
 ssh e2-spark-1 'mkdir -p ~/e2dist'
-rsync -a --info=progress2 "$E2B/e2dist/" e2-spark-1:~/e2dist/
+rsync -a --info=progress2 /mnt/c/demos/earth2/e2bundle/e2dist/ e2-spark-1:~/e2dist/
 ```
 
 ### 3.2 Distribute the image
@@ -341,7 +348,7 @@ for n in e2-spark-1 e2-spark-2 e2-spark-3; do printf "%-11s " $n; ssh $n 'docker
 ```bash
 for n in e2-spark-1 e2-spark-2 e2-spark-3; do
   ssh $n 'mkdir -p ~/e2cache'
-  rsync -a --info=progress2 "$E2B/e2cache/" $n:~/e2cache/
+  rsync -a --info=progress2 /mnt/c/demos/earth2/e2bundle/e2cache/ $n:~/e2cache/
 done
 ```
 
@@ -360,7 +367,7 @@ unusable. The tar preserves them; Linux restores them on extract.
 ```bash
 # [LAPTOP] -- extract to the LINUX filesystem, never onto /mnt/c or a USB drive:
 # NTFS cannot hold the symlinks, which is the whole reason this is a tar.
-tar -xf "$E2B/hf-cache.tar" -C /tmp
+tar -xf /mnt/c/demos/earth2/e2bundle/hf-cache.tar -C /tmp
 ssh e2-spark-3 'mkdir -p ~/.cache/huggingface'
 rsync -a --info=progress2 /tmp/hf-cache/ e2-spark-3:~/.cache/huggingface/
 rm -rf /tmp/hf-cache
@@ -378,8 +385,8 @@ ssh e2-spark-3 'du -sh ~/.cache/huggingface; find ~/.cache/huggingface -type l |
 ### 3.5 Verify
 
 ```bash
-./scripts/stage-offline.sh --verify --date <IC-DATE>   # checksums only
-./scripts/verify.sh                                    # real SFNO load per node
+./scripts/stage-offline.sh --verify --date 2026-10-23   # checksums only
+./scripts/verify.sh                                     # real SFNO load per node
 ```
 
 `verify.sh` must print **`VERIFY_OK` three times.** It actually loads SFNO on
@@ -440,8 +447,8 @@ An ensemble writes `.npy` **on the Sparks**. Nothing reaches the screen until
 you collect and render. All five steps, in order:
 
 ```bash
-DATE=<IC-DATE> MEMBERS=6 STEPS=20 ./scripts/ensemble.sh   # ~3-5 min
-DATE=<IC-DATE> ./scripts/corrdiff.sh                      # ~30 s
+DATE=2026-10-23 MEMBERS=6 STEPS=20 ./scripts/ensemble.sh  # ~3-5 min
+DATE=2026-10-23 ./scripts/corrdiff.sh                     # ~30 s
 ./scripts/collect.sh                                      # Sparks -> ~/e2viz/data
 .venv/bin/python viz/render.py                            # -> ~/e2viz/frames
 E2_AGENT_NODE=e2-spark-3 ./demo start                     # serve the UI

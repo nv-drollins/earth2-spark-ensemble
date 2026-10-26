@@ -112,5 +112,26 @@ if [[ $DOWNSCALE -eq 1 ]]; then
 fi
 
 hdr "Rendering"
-python3 "$REPO/viz/render.py" >/dev/null 2>&1 && ok "frames rendered" || warn "render issue"
-c_grn "Done -- the display is showing the new run."
+# Use the repo venv: on Ubuntu 24.04+ (PEP 668) the SYSTEM python3 has no
+# numpy/pillow, so a bare `python3 render.py` always fails here. Combined with
+# the old >/dev/null it meant Plan & Run could NEVER update the display and
+# still printed "Done -- the display is showing the new run."
+PY="python3"
+[[ -x "$REPO/.venv/bin/python" ]] && PY="$REPO/.venv/bin/python"
+
+RENDER_LOG=$(mktemp); trap 'rm -f "$RENDER_LOG"' EXIT
+if "$PY" "$REPO/viz/render.py" >"$RENDER_LOG" 2>&1; then
+  ok "frames rendered"
+  c_grn "Done -- the display is showing the new run."
+else
+  err "render FAILED -- the cluster ran, but the display still shows the OLD run:"
+  tail -5 "$RENDER_LOG" | sed 's/^/       /'
+  if grep -qi "No module named" "$RENDER_LOG"; then
+    echo "       Missing deps. Create the venv once:"
+    echo "         python3 -m venv $REPO/.venv"
+    echo "         $REPO/.venv/bin/pip install -r $REPO/viz/requirements.txt"
+  fi
+  echo "       The forecast data IS collected -- just re-run:"
+  echo "         $PY $REPO/viz/render.py"
+  exit 1
+fi

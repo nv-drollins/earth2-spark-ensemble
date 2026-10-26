@@ -11,6 +11,28 @@
 #     "unrecognized arguments: <model>".
 #  3. Verify /v1/models reports the id you asked for. A container that is "Up"
 #     can still be Restarting in a crash loop, and the old model keeps serving.
+# RUNS ON THE AGENT NODE. Unlike every other script here, this one does NOT
+# drive the cluster over SSH -- it assumes $HOME and `docker` are on the SAME
+# machine. Driven from a control laptop it bind-mounts the LAPTOP's home
+# (-v /home/<you>/.cache/huggingface) and then dies with "docker: command not
+# found", which names neither problem.
+#
+# So: if E2_AGENT_NODE is set and names a DIFFERENT machine, re-exec there.
+if [[ -n "${E2_AGENT_NODE:-}" ]] && ! command -v docker >/dev/null 2>&1; then
+  echo "serve-model.sh: no docker here -- running on $E2_AGENT_NODE instead"
+  scp -o BatchMode=yes -q "${BASH_SOURCE[0]}" "$E2_AGENT_NODE:~/serve-model.sh" || {
+    echo "ERROR: could not copy this script to $E2_AGENT_NODE" >&2; exit 1; }
+  exec ssh -o BatchMode=yes "$E2_AGENT_NODE" "bash -lc 'HF_TOKEN=${HF_TOKEN:-} bash ~/serve-model.sh'"
+fi
+
+if ! command -v docker >/dev/null 2>&1; then
+  echo "ERROR: docker not found, and E2_AGENT_NODE is not set." >&2
+  echo "       Run this ON the agent node, or set E2_AGENT_NODE=<node> to" >&2
+  echo "       have it re-exec there:" >&2
+  echo "         E2_AGENT_NODE=e2-spark-3 ./agent/serve-model.sh" >&2
+  exit 1
+fi
+
 set -x
 systemctl --user stop vllm-server.service 2>/dev/null
 systemctl --user disable vllm-server.service 2>/dev/null
