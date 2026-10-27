@@ -512,14 +512,37 @@ curl -fsSL https://www.nvidia.com/nemoclaw.sh | \
   NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE=1 NEMOCLAW_SANDBOX_NAME=throwaway-init bash
 ```
 
-It **ends with an error and exits non-zero**:
+**Two things this installer does that surprise people:**
+
+**It downloads ~22 GB of its OWN model first.** The auto-onboard stands up a
+`nemoclaw-vllm` container serving `nvidia/Qwen3.6-35B-A3B-NVFP4` — a different
+model from the Nemotron you staged, which it neither knows nor cares about.
+Measured: ~22 GB in ~5 min on good wifi. **At a venue with poor or no internet
+this will hang rather than fail fast**, which is the single best reason to run
+this step at the office on the event hardware.
+
+**It then ends with an error and exits non-zero:**
 `vLLM install failed: port 8000 is already in use`. **That is expected.** The
-CLIs installed fine. Confirm and clean up its throwaway sandbox:
+CLIs installed fine. Confirm and clean up its throwaway sandbox — and remove
+the Qwen weights, which nothing in this demo uses:
 
 ```bash
 nemoclaw --version
 ~/.local/bin/nemoclaw throwaway-init destroy --yes
 docker rm -f nemoclaw-vllm 2>/dev/null
+rm -rf ~/.cache/huggingface/hub/models--nvidia--Qwen3.6-35B-A3B-NVFP4   # ~22 GB
+```
+
+Leaving `nemoclaw-vllm` running is not cosmetic: it holds port 8000, so
+`setup-agent.sh` cannot find `e2-llm` and reports what looks like a network
+fault instead of a name clash.
+
+Confirm your staged model is the one in use — it should be ~3.8 MB of
+symlinks into a ~21 GB `blobs/` directory, with NO fresh download:
+
+```bash
+du -sh ~/.cache/huggingface/hub/models--nvidia--NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4
+find ~/.cache/huggingface -type l | wc -l      # ~112-129 symlinks
 ```
 
 Use the **absolute path** — `nemoclaw` lives in `~/.local/bin`, which only
