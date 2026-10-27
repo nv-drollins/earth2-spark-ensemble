@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Copy the image bundle from the build node to every other node and load it.
-# Idempotent: skips any node that already has the image.
+# Idempotent: skips any node that already has the image, so it is also a safe
+# no-op verification pass after loading every node from USB.
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
+FAIL=0
 
 TARNAME="$(echo "$IMAGE" | tr ':/' '__').tar.zst"
 DP_BUILD=$(docker_prefix_for "$BUILD_NODE")
@@ -10,7 +12,13 @@ DP_BUILD=$(docker_prefix_for "$BUILD_NODE")
 R_BUNDLE_BUILD=$(remote_path "$BUILD_NODE" "$BUNDLE_DIR") || exit 1
 TARBALL="$R_BUNDLE_BUILD/$TARNAME"
 
-on_node "$BUILD_NODE" "test -f '$TARBALL'" || { err "bundle missing on $BUILD_NODE: $TARBALL -- run scripts/build.sh"; exit 1; }
+# Do NOT demand the tarball up front. After the USB path (INSTALL.md 3.0) the
+# image is loaded on every node and no tarball exists anywhere -- this script
+# then has nothing to do, and exiting here meant a complete, correct install
+# reported "bundle missing ... run scripts/build.sh". Decide per node instead,
+# and only complain if a node that actually NEEDS the tarball cannot get it.
+HAVE_TARBALL=0
+on_node "$BUILD_NODE" "test -f '$TARBALL'" && HAVE_TARBALL=1
 
 for node in "${NODE_ARR[@]}"; do
   hdr "$node"
@@ -21,6 +29,16 @@ for node in "${NODE_ARR[@]}"; do
   NODE_TARBALL="$R_BUNDLE/$TARNAME"
   if on_node "$node" "${DP}docker image inspect '$IMAGE' >/dev/null 2>&1"; then
     ok "already has $IMAGE -- skipping"; continue
+  fi
+
+  # This node needs the image and does not have it, so now the tarball matters.
+  if [[ $HAVE_TARBALL -eq 0 ]]; then
+    err "$node lacks $IMAGE and no tarball exists on $BUILD_NODE:"
+    echo "       $TARBALL"
+    echo "       Either load it on this node from USB (INSTALL.md 3.0):"
+    echo "         zstd -dc <usb>/e2bundle/e2dist/$TARNAME | docker load"
+    echo "       or copy the tarball to $BUILD_NODE and re-run (INSTALL.md 3.1)."
+    FAIL=1; continue
   fi
 
   if [[ "$node" == "$BUILD_NODE" ]]; then
@@ -50,5 +68,11 @@ for node in "${NODE_ARR[@]}"; do
   fi
 done
 
-hdr "Done"
-echo "Next:  scripts/fetch-models.sh   # pre-stage SFNO weights (needs internet ONCE)"
+hdr "Result"
+if [[ $FAIL -eq 0 ]]; then
+  c_grn "All nodes have $IMAGE."
+  echo "Next:  scripts/stage-offline.sh --verify   then   scripts/verify.sh"
+else
+  c_red "One or more nodes do NOT have $IMAGE -- see above."
+  exit 1
+fi
