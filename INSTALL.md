@@ -340,19 +340,27 @@ Nothing here touches the network.
 lsblk -o NAME,SIZE,FSTYPE,LABEL          # look for your bundle drive
 ```
 
-**Mount it** (DGX OS has the NTFS driver but does not auto-load it; exFAT
-sticks work the same way with `-t exfat`):
+**DGX OS auto-mounts the stick** under `/media/<user>/<LABEL>` — check before
+mounting anything yourself:
+
+```bash
+ls /media/$USER/                         # e.g. E2BUNDLE
+USB=/media/$USER/E2BUNDLE                # adjust to YOUR label
+ls $USB/e2bundle                         # sanity check: e2dist e2cache hf-cache.tar
+```
+
+Only if it did NOT auto-mount:
 
 ```bash
 sudo mkdir -p /mnt/usb
 sudo mount -t ntfs3 /dev/sda1 /mnt/usb   # use the device lsblk showed
-ls /mnt/usb/e2bundle                     # sanity check
+USB=/mnt/usb
 ```
 
 **1. Load the image** — straight off the stick, no network:
 
 ```bash
-zstd -dc /mnt/usb/e2bundle/e2dist/earth2-spark_1.1.tar.zst | docker load
+zstd -dc $USB/e2bundle/e2dist/earth2-spark_1.1.tar.zst | docker load
 docker images | grep earth2              # expect earth2-spark:1.1
 ```
 
@@ -366,7 +374,7 @@ which is why it ships as `.tar.zst`.
 
 ```bash
 mkdir -p ~/e2cache
-cp -r /mnt/usb/e2bundle/e2cache/* ~/e2cache/
+cp -r $USB/e2bundle/e2cache/* ~/e2cache/
 du -sh ~/e2cache                         # expect ~8.5 GB
 ```
 
@@ -374,7 +382,7 @@ du -sh ~/e2cache                         # expect ~8.5 GB
 
 ```bash
 mkdir -p ~/.cache/huggingface
-tar -xf /mnt/usb/e2bundle/hf-cache.tar -C /tmp
+tar -xf $USB/e2bundle/hf-cache.tar -C /tmp
 cp -a /tmp/hf-cache/. ~/.cache/huggingface/
 rm -rf /tmp/hf-cache
 du -sh ~/.cache/huggingface              # expect ~21 GB
@@ -389,19 +397,25 @@ already-compressed model weights, so compression would burn CPU on both ends
 for almost no saving. It exists to preserve symlinks across a non-Unix
 filesystem, nothing else.
 
-**4. Unmount before pulling the stick:**
+**4. Before pulling the stick:**
 
 ```bash
-sync && sudo umount /mnt/usb
+sync
+sudo umount $USB      # or eject from the desktop if it auto-mounted
 ```
 
 **Then, once per cluster, from the LAPTOP:**
 
+Confirm every node has it, then go straight to **3.5 Verify** — you can skip
+3.1-3.4 entirely:
+
 ```bash
-./scripts/distribute.sh     # should say "already has earth2-spark:1.1 -- skipping" x3
+# [LAPTOP]
+for n in e2-spark-1 e2-spark-2 e2-spark-3; do printf "%-11s " $n; ssh $n 'docker images --format "{{.Repository}}:{{.Tag}}" | grep earth2 || echo MISSING'; done
 ```
 
-Skip 3.1-3.4 entirely and go to **3.5 Verify**.
+`./scripts/distribute.sh` is optional after this — it will report
+`already has earth2-spark:1.1 -- skipping` three times and exit 0.
 
 ---
 

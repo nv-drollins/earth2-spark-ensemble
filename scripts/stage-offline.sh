@@ -76,19 +76,37 @@ manifest_for() {
 
 verify_manifest() {
   # Returns 0 only if every checksummed file still matches.
-  # A MISSING manifest is not a failure on its own: distribute.sh STREAMS only
-  # the tarball to nodes 2..N (ssh cat | ssh cat), so the MANIFEST.sha256 that
-  # sits beside it on the first node never gets there. Demanding one made a
-  # perfectly good install report "Verification FAILED" on every node but the
-  # first. What actually proves those nodes are good is that `docker load`
-  # succeeded -- a corrupt archive cannot load.
+  #
+  # A MISSING manifest is usually NOT a failure. $BUNDLE_DIR is a STAGING
+  # directory, and two supported installs leave it without one -- or empty:
+  #   * LAN install: distribute.sh streams only the tarball to nodes 2..N
+  #     (ssh cat | ssh cat), so MANIFEST.sha256 never arrives.
+  #   * USB install (INSTALL.md 3.0): the image is loaded straight off the
+  #     stick and NOTHING is ever written to $BUNDLE_DIR on any node.
+  # Demanding a manifest made both of those report "Verification FAILED" on a
+  # complete, correct cluster.
+  #
+  # What actually proves a node is good is that $IMAGE is LOADED. A corrupt
+  # archive cannot `docker load`, and a staging file that has since been
+  # deleted says nothing either way. So: check the image first, and only fall
+  # back to file checks when the image is genuinely absent.
   local node="$1" root="$2" mf="$3"
   if ! on_node "$node" "test -s '$mf'"; then
+    # No manifest. Is this the bundle dir, and is the image already loaded?
+    if [[ "$root" == "$(remote_path "$node" "$BUNDLE_DIR")" ]]; then
+      local dp; dp=$(docker_prefix_for "$node")
+      if [[ "$dp" != "NEEDS_PASSWORD" ]] && \
+         on_node "$node" "${dp}docker image inspect '$IMAGE' >/dev/null 2>&1"; then
+        ok "$(basename "$root"): $IMAGE is loaded -- staging dir not needed"
+        return 0
+      fi
+    fi
     if on_node "$node" "ls '$root'/*.tar.zst >/dev/null 2>&1"; then
       ok "$(basename "$root"): no manifest here (streamed by distribute.sh) -- archive present"
       return 0
     fi
-    warn "no manifest and no archive at $root -- stage first"; return 1
+    warn "no manifest, no archive, and $IMAGE not loaded at $root -- stage first"
+    return 1
   fi
   local out
   out=$(on_node "$node" "cd '$root' && grep -v '^files=' '$mf' | sha256sum -c --quiet 2>&1")
