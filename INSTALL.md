@@ -509,21 +509,48 @@ each GPU and is the only check that catches a broken model stack. A clean
 
 ```bash
 curl -fsSL https://www.nvidia.com/nemoclaw.sh | \
-  NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE=1 NEMOCLAW_SANDBOX_NAME=throwaway-init bash
+  NEMOCLAW_ACCEPT_THIRD_PARTY_SOFTWARE=1 \
+  NEMOCLAW_AGENT=hermes \
+  NEMOCLAW_DEFER_ONBOARDING=1 \
+  NEMOCLAW_NON_INTERACTIVE=1 bash
 ```
 
-**Two things this installer does that surprise people:**
+Use the command above **exactly** — the two highlighted variables matter.
 
-**It downloads ~22 GB of its OWN model first.** The auto-onboard stands up a
-`nemoclaw-vllm` container serving `nvidia/Qwen3.6-35B-A3B-NVFP4` — a different
-model from the Nemotron you staged, which it neither knows nor cares about.
-Measured: ~22 GB in ~5 min on good wifi. **At a venue with poor or no internet
-this will hang rather than fail fast**, which is the single best reason to run
-this step at the office on the event hardware.
+**`NEMOCLAW_DEFER_ONBOARDING=1` skips a ~22 GB download you do not want.**
+The default auto-onboard stands up a `nemoclaw-vllm` container serving
+`nvidia/Qwen3.6-35B-A3B-NVFP4` — a different model from the Nemotron you
+staged, which it neither knows nor cares about. Deferring skips it entirely.
 
-**It then ends with an error and exits non-zero:**
-`vLLM install failed: port 8000 is already in use`. **That is expected.** The
-CLIs installed fine. Confirm and clean up its throwaway sandbox — and remove
+**`NEMOCLAW_AGENT=hermes` is required for that flag to be accepted.** The
+installer defaults to `openclaw`, which rejects it outright:
+
+```
+[ERROR] --defer-onboarding is not supported for NEMOCLAW_AGENT=openclaw.
+```
+
+Measured on a clean GB10:
+
+| | with both flags | default install |
+|---|---|---|
+| exit code | **0** | 1 (port-8000 error) |
+| `nemoclaw` | v0.0.137 installed | v0.0.137 installed |
+| `~/.cache/huggingface` | **0 bytes** | **22 GB** of Qwen |
+| containers left running | **none** | `nemoclaw-vllm` + a throwaway sandbox |
+
+With the flags there is **no download, no stray container, and no error to
+explain** — the step is genuinely offline-capable apart from fetching the CLI
+itself (~tens of MB for node and the OpenShell assets).
+
+> **Not yet verified:** that `setup-agent.sh` (4.2) onboards successfully on a
+> node installed this way. The CLI install and the absence of any download are
+> measured; the onboarding path after a *deferred* install has not been run end
+> to end. If 4.2 fails on a deferred node, install without the defer flags on
+> that node and clean up as below.
+
+**If you installed WITHOUT the defer flags**, the run ends with
+`vLLM install failed: port 8000 is already in use` and exits non-zero. That is
+expected — the CLIs installed fine. Clean up the throwaway sandbox and remove
 the Qwen weights, which nothing in this demo uses:
 
 ```bash
